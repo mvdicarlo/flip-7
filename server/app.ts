@@ -75,6 +75,7 @@ export function createApp(
   app.get('/api/lobbies/:code', async (request, response) => {
     const code = lobbyCodeSchema.parse(request.params.code)
     const lobby = await lobbyService.getLobby(code)
+    response.set('Cache-Control', 'no-store')
     response.json({ lobby })
   })
 

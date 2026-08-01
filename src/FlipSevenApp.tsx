@@ -1,6 +1,5 @@
 import {
   type FormEvent,
-  startTransition,
   useEffect,
   useRef,
   useState,
@@ -478,7 +477,6 @@ function DisplayPage() {
 
   useEffect(() => {
     let isCurrent = true
-    let hasLoaded = false
 
     const refreshLobby = async () => {
       try {
@@ -488,12 +486,7 @@ function DisplayPage() {
           return
         }
 
-        if (hasLoaded) {
-          startTransition(() => setLobby(nextLobby))
-        } else {
-          setLobby(nextLobby)
-          hasLoaded = true
-        }
+        setLobby(nextLobby)
         setError('')
         setConnectionState('live')
       } catch (requestError) {
@@ -821,7 +814,6 @@ function LobbyPage() {
 
   useEffect(() => {
     let isCurrent = true
-    let hasLoaded = false
 
     const refreshLobby = async () => {
       try {
@@ -831,12 +823,7 @@ function LobbyPage() {
           return
         }
 
-        if (hasLoaded) {
-          startTransition(() => setLobby(nextLobby))
-        } else {
-          setLobby(nextLobby)
-          hasLoaded = true
-        }
+        setLobby(nextLobby)
         setError('')
         setConnectionState('live')
       } catch (requestError) {
@@ -1425,25 +1412,18 @@ function GamePage({
                   key={player.id}
                 >
                   <span className="rank-number">{index + 1}</span>
-                  <span
-                    className={`player-token token-${index % 4}`}
-                    aria-hidden="true"
-                  >
-                    {player.name.charAt(0).toUpperCase()}
+                  <span className="standing-token">
+                    <span
+                      className={`player-token token-${index % 4}`}
+                      aria-hidden="true"
+                    >
+                      {player.name.charAt(0).toUpperCase()}
+                    </span>
+                    {player.id === session?.playerId && <small>You</small>}
                   </span>
                   <div className="standing-player">
                     <span className="standing-name">
-                      <span>
-                        {player.name}
-                        {player.id === session?.playerId && <small>You</small>}
-                      </span>
-                      <small className="hand-state">
-                        {player.hand.busted
-                          ? 'Bust'
-                          : player.hand.ready
-                            ? 'Ready'
-                            : 'Choosing'}
-                      </small>
+                      <span>{player.name}</span>
                     </span>
                     {lobby.status === 'active' && (
                       <HandChips hand={player.hand} />
@@ -1479,6 +1459,15 @@ function GamePage({
                       <small>
                         {lobby.status === 'active' ? 'Projected' : 'Total'}
                       </small>
+                      {lobby.status === 'active' && (
+                        <small className="hand-state">
+                          {player.hand.busted
+                            ? 'Bust'
+                            : player.hand.ready
+                              ? 'Ready'
+                              : 'Choosing'}
+                        </small>
+                      )}
                     </span>
                     {lobby.status === 'active' &&
                       session?.role === 'host' &&

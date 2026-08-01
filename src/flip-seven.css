@@ -919,9 +919,25 @@
 }
 
 .scoreboard-list .rank-number,
-.scoreboard-list .player-token,
+.scoreboard-list .standing-token,
 .scoreboard-list .score-total {
   margin-top: 2px;
+}
+
+.standing-token {
+  width: 39px;
+  flex: 0 0 39px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.standing-token small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .rank-number {
@@ -954,22 +970,6 @@
   gap: 7px;
   font-weight: 850;
   overflow-wrap: anywhere;
-}
-
-.standing-name small {
-  color: var(--muted);
-  font-size: 0.65rem;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.standing-name .hand-state {
-  flex: 0 0 auto;
-  color: var(--teal);
-}
-
-.hand-busted .standing-name .hand-state {
-  color: var(--red-dark);
 }
 
 .live-hand-chips {
@@ -1103,6 +1103,15 @@
   font-size: 0.62rem;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.score-total .hand-state {
+  margin-top: 5px;
+  color: var(--teal);
+}
+
+.hand-busted .score-total .hand-state {
+  color: var(--red-dark);
 }
 
 .game-side-column {
@@ -2012,6 +2021,23 @@
 }
 
 @media (max-width: 340px) {
+  .game-main {
+    padding-inline: 12px;
+  }
+
+  .game-main .scoreboard-pane {
+    padding-inline: 16px;
+  }
+
+  .scoreboard-pane .scoreboard-list li {
+    gap: 7px;
+  }
+
+  .scoreboard-list .score-actions {
+    width: 58px;
+    flex-basis: 58px;
+  }
+
   .number-card-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -2044,6 +2070,41 @@
   .copy-button svg {
     width: 19px;
     height: 19px;
+  }
+
+  .scoreboard-pane {
+    padding-inline: 18px;
+  }
+
+  .scoreboard-list li {
+    position: relative;
+    gap: 8px;
+  }
+
+  .scoreboard-list .rank-number {
+    position: absolute;
+    z-index: 1;
+    top: 8px;
+    left: -7px;
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    color: var(--ink);
+    background: var(--yellow);
+    border: 1.5px solid var(--ink);
+    border-radius: 50%;
+    font-size: 0.66rem;
+  }
+
+  .score-actions {
+    width: 60px;
+    flex-basis: 60px;
+  }
+
+  .standing-name > span {
+    display: block;
   }
 
   .standing-name {

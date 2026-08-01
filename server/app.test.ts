@@ -45,6 +45,7 @@ describe('lobby API', () => {
       .get('/api/lobbies/abcde')
       .expect(200)
 
+    assert.equal(getResponse.headers['cache-control'], 'no-store')
     assert.equal(getResponse.body.lobby.code, 'ABCDE')
     assert.equal(getResponse.body.lobby.players.length, 1)
   })

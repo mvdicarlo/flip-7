@@ -41,6 +41,7 @@ export async function joinLobby(
 export async function getLobby(code: string): Promise<LobbyView> {
   const result = await apiRequest<LobbyEnvelope>(
     `/api/lobbies/${encodeURIComponent(code)}`,
+    { cache: 'no-store' },
   )
   return result.lobby
 }
