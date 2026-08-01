@@ -1,114 +1,94 @@
-# React + TypeScript + Vite
+# Flip Seven Scorekeeper
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An unofficial, mobile-first lobby and scorekeeping companion for the Flip 7 card game.
 
-Currently, two official plugins are available:
+## Current flow
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. A host enters a display name and creates a lobby.
+2. The server creates a five-character lobby code and adds the host as the first player.
+3. The waiting room shows the code, a join QR code, share controls, and the player list.
+4. Players join from the home page or `/join/:code` with a unique display name.
+5. The waiting room polls every three seconds for new players.
 
-## React Compiler
+Lobby records expire logically after 12 hours. Ambiguous characters such as `0`, `1`, `I`, and `O` are not used in lobby codes.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Stack
 
-## Expanding the ESLint configuration
+- Node.js 24 and TypeScript
+- React 19 and Vite
+- Express 5
+- Azure Table Storage in production
+- In-memory storage for local development
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+The production Express process serves both `/api/*` and the built React application, so one Linux App Service is sufficient.
 
-```js
-export default defineConfig([
-  # Flip Seven Scorekeeper
+## Local development
 
-  An unofficial, mobile-first lobby and scorekeeping companion for the Flip 7 card game.
+Requirements: Node.js 24 and npm.
 
-  ## Current flow
+```sh
+npm install
+npm run dev
+```
 
-  1. A host enters a display name and creates a lobby.
-  2. The server creates a 5-character lobby code and stores the host as the first player.
-  3. The waiting room shows the code, a join QR code, share controls, and the player list.
-  4. Players join from the home page or `/join/:code` with a unique display name.
-  5. The waiting room polls every three seconds for new players. The same lobby payload can later be pushed over WebSockets.
+Open `http://localhost:5173`. Vite proxies API calls to Express on port `3000`. Local lobbies are held in memory and reset when the server restarts.
 
-  Lobby records expire after 12 hours. Ambiguous characters such as `0`, `1`, `I`, and `O` are not used in lobby codes.
+Useful checks:
 
-  ## Stack
+```sh
+npm test
+npm run lint
+npm run build
+```
 
-  - Node.js 24 and TypeScript
-  - React 19 and Vite
-  - Express 5
-  - Azure Cosmos DB for MongoDB in production
-  - In-memory storage for local development
+## Configuration
 
-  The production Express process serves both `/api/*` and the built React application, so one Linux App Service is sufficient.
+| Setting | Required | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | Azure | Set to `production`; this makes Table Storage the default store. |
+| `LOBBY_STORE` | No | `memory` or `table`. Defaults to memory locally and Table Storage in production. |
+| `PORT` | No | Express port. Azure supplies this automatically. |
+| `AZURE_STORAGE_TABLE_ENDPOINT` | Table | Table service URL, such as `https://account.table.core.windows.net`. |
+| `AZURE_STORAGE_TABLE_NAME` | No | Table name. Defaults to `lobbies`. |
 
-  ## Local development
+No storage key or connection string is required. `DefaultAzureCredential` uses the App Service managed identity in Azure and the developer's Azure CLI identity when explicitly running the table store locally.
 
-  Requirements: Node.js 24 and npm.
+## Table layout
 
-  ```sh
-  npm install
-  npm run dev
-  ```
+Each lobby is one table partition:
 
-  Open `http://localhost:5173`. Vite proxies API calls to the Express server on port `3000`. Local lobbies are held in memory and reset when the server restarts.
+- `PartitionKey` is the lobby code.
+- The lobby metadata entity uses `RowKey` `lobby`.
+- Player row keys are deterministic hashes of normalized names, which enforces unique names within a lobby.
+- Lobby metadata and the host are created in one atomic table transaction.
+- Players are ordered by `joinedAt` in the application after retrieval.
 
-  To override local settings, create `.env` from `.env.example`. Node 24 loads it natively when the server starts.
+Azure Table Storage does not provide per-entity TTL. The application rejects lobbies after their shared 12-hour expiration, but physical removal requires a scheduled cleanup process if stale-row storage becomes meaningful.
 
-  Useful checks:
+## Azure App Service
 
-  ```sh
-  npm test
-  npm run lint
-  npm run build
-  ```
+Use a Linux App Service configured for Node.js 24.
 
-  ## Configuration
+1. Enable the App Service system-assigned managed identity.
+2. Grant that identity `Storage Table Data Contributor` on the storage account.
+3. Set `NODE_ENV=production`, `LOBBY_STORE=table`, `AZURE_STORAGE_TABLE_ENDPOINT`, and optionally `AZURE_STORAGE_TABLE_NAME`.
+4. Run `npm ci` and `npm run build` in the deployment pipeline.
+5. Deploy `dist`, `dist-server`, production dependencies, and package metadata.
+6. Use `npm start` as the startup command and `/api/health` as the health-check path.
 
-  | Setting | Required | Purpose |
-  | --- | --- | --- |
-  | `NODE_ENV` | Azure | Set to `production`; this makes Cosmos DB the default store. |
-  | `LOBBY_STORE` | No | `memory` or `cosmos`. Defaults to memory locally and Cosmos in production. |
-  | `PORT` | No | Express port. Azure's supplied value is used automatically. |
-  | `AZURE_COSMOS_CONNECTIONSTRING` | Cosmos | MongoDB API connection string supplied by Azure. |
-  | `COSMOS_DATABASE_ID` | No | Database name. Defaults to `flip-seven`. |
-  | `COSMOS_COLLECTION_ID` | No | Collection name. Defaults to `lobbies`. |
+The server initializes the table before listening, binds to `0.0.0.0`, and honors Azure's `PORT` setting.
 
-  Set `AZURE_COSMOS_CONNECTIONSTRING` under App Service **App settings**. If it is stored under **Connection strings** as type `Custom`, App Service exposes it as `CUSTOMCONNSTR_AZURE_COSMOS_CONNECTIONSTRING`, which is also supported.
+## API
 
-  ## Cosmos DB
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/lobbies` | Create a lobby with `{ "hostName": "Morgan" }`. |
+| `GET` | `/api/lobbies/:code` | Read the public waiting-room state. |
+| `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
+| `GET` | `/api/health` | App Service health probe. |
 
-  This application uses Cosmos DB's MongoDB API through the official `mongodb` driver. The database and collection default to `flip-seven` and `lobbies` and can be overridden independently from the connection string.
+Create and join responses include a browser session token. Only token hashes are persisted.
 
-  At startup, the repository ensures two indexes:
+## Real-time next step
 
-  - A unique compound index on `lobbyCode` and `id` protects lobby-code and normalized player-name uniqueness under concurrent writes.
-  - A TTL index on `expiresAtDate` removes lobby and player documents at their shared 12-hour expiration.
-
-  Each lobby and player is stored as a separate document. The supplied MongoDB credential must be able to read and write the collection and create these indexes.
-
-  ## Azure App Service
-
-  Use a Linux App Service configured for Node.js 24.
-
-  1. Run `npm ci` and `npm run build` in the deployment pipeline.
-  2. Deploy the repository with `dist`, `dist-server`, production dependencies, and package metadata.
-  3. Use `npm start` as the startup command.
-  4. Add `AZURE_COSMOS_CONNECTIONSTRING` and any database/collection overrides to App Service Configuration.
-  5. Optionally configure `/api/health` as the health check path.
-
-  The server binds to `0.0.0.0` and honors Azure's `PORT` setting.
-
-  ## API
-
-  | Method | Route | Purpose |
-  | --- | --- | --- |
-  | `POST` | `/api/lobbies` | Create a lobby with `{ "hostName": "Morgan" }`. |
-  | `GET` | `/api/lobbies/:code` | Read the public waiting-room state. |
-  | `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
-  | `GET` | `/api/health` | App Service health probe. |
-
-  Create and join responses include a browser session token. Token hashes are stored now so host-only and player-only actions can be authorized when gameplay endpoints are added.
-
-  ## Real-time next step
-
-  The current polling loop should be replaced with a lobby update event while retaining `GET /api/lobbies/:code` for initial state and reconnects. Socket.IO can share the existing HTTP server for a single App Service instance. For scale-out, use Azure Web PubSub or a Socket.IO backplane rather than relying on process-local broadcasts.
+The current polling loop can be replaced with a lobby update event while retaining `GET /api/lobbies/:code` for initial state and reconnects. For scale-out, use Azure Web PubSub or another shared backplane rather than process-local broadcasts.

@@ -1,15 +1,14 @@
-export type LobbyStore = 'memory' | 'cosmos'
+export type LobbyStore = 'memory' | 'table'
 
-export interface CosmosMongoSettings {
-  connectionString: string
-  databaseId: string
-  collectionId: string
+export interface TableStorageSettings {
+  endpoint: string
+  tableName: string
 }
 
 export interface ServerConfig {
   port: number
   store: LobbyStore
-  cosmos?: CosmosMongoSettings
+  tableStorage?: TableStorageSettings
 }
 
 export function loadConfig(
@@ -25,10 +24,9 @@ export function loadConfig(
   return {
     port,
     store,
-    cosmos: {
-      connectionString: cosmosConnectionString(environment),
-      databaseId: environment.COSMOS_DATABASE_ID?.trim() || 'flip-seven',
-      collectionId: environment.COSMOS_COLLECTION_ID?.trim() || 'lobbies',
+    tableStorage: {
+      endpoint: required(environment, 'AZURE_STORAGE_TABLE_ENDPOINT'),
+      tableName: environment.AZURE_STORAGE_TABLE_NAME?.trim() || 'lobbies',
     },
   }
 }
@@ -36,10 +34,10 @@ export function loadConfig(
 function getStore(environment: NodeJS.ProcessEnv): LobbyStore {
   const value =
     environment.LOBBY_STORE ??
-    (environment.NODE_ENV === 'production' ? 'cosmos' : 'memory')
+    (environment.NODE_ENV === 'production' ? 'table' : 'memory')
 
-  if (value !== 'memory' && value !== 'cosmos') {
-    throw new Error('LOBBY_STORE must be either "memory" or "cosmos"')
+  if (value !== 'memory' && value !== 'table') {
+    throw new Error('LOBBY_STORE must be either "memory" or "table"')
   }
 
   return value
@@ -55,16 +53,11 @@ function getPort(value: string | undefined): number {
   return port
 }
 
-function cosmosConnectionString(environment: NodeJS.ProcessEnv): string {
-  const value =
-    environment.AZURE_COSMOS_CONNECTIONSTRING?.trim() ||
-    environment.AZURE_COSMOS_CONNECTION_STRING?.trim() ||
-    environment.CUSTOMCONNSTR_AZURE_COSMOS_CONNECTIONSTRING?.trim()
+function required(environment: NodeJS.ProcessEnv, name: string): string {
+  const value = environment[name]?.trim()
 
   if (!value) {
-    throw new Error(
-      'AZURE_COSMOS_CONNECTIONSTRING is required when LOBBY_STORE is "cosmos"',
-    )
+    throw new Error(`${name} is required when LOBBY_STORE is "table"`)
   }
 
   return value

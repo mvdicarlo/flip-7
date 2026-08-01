@@ -3,35 +3,34 @@ import { describe, it } from 'node:test'
 import { loadConfig } from './config.js'
 
 describe('server configuration', () => {
-  it('uses the App Service MongoDB connection string in production', () => {
+  it('uses Azure Table Storage in production', () => {
     const config = loadConfig({
       NODE_ENV: 'production',
-      AZURE_COSMOS_CONNECTIONSTRING: 'mongodb://example.invalid',
+      AZURE_STORAGE_TABLE_ENDPOINT: 'https://example.table.core.windows.net',
     })
 
-    assert.equal(config.store, 'cosmos')
-    assert.equal(config.cosmos?.connectionString, 'mongodb://example.invalid')
-    assert.equal(config.cosmos?.databaseId, 'flip-seven')
-    assert.equal(config.cosmos?.collectionId, 'lobbies')
-  })
-
-  it('requires a MongoDB connection string for the Cosmos store', () => {
-    assert.throws(
-      () => loadConfig({ LOBBY_STORE: 'cosmos' }),
-      /AZURE_COSMOS_CONNECTIONSTRING is required/,
-    )
-  })
-
-  it('supports an App Service custom connection string', () => {
-    const config = loadConfig({
-      LOBBY_STORE: 'cosmos',
-      CUSTOMCONNSTR_AZURE_COSMOS_CONNECTIONSTRING:
-        'mongodb://app-service.example.invalid',
-    })
-
+    assert.equal(config.store, 'table')
     assert.equal(
-      config.cosmos?.connectionString,
-      'mongodb://app-service.example.invalid',
+      config.tableStorage?.endpoint,
+      'https://example.table.core.windows.net',
     )
+    assert.equal(config.tableStorage?.tableName, 'lobbies')
+  })
+
+  it('requires a Table Storage endpoint for the table store', () => {
+    assert.throws(
+      () => loadConfig({ LOBBY_STORE: 'table' }),
+      /AZURE_STORAGE_TABLE_ENDPOINT is required/,
+    )
+  })
+
+  it('supports a custom table name', () => {
+    const config = loadConfig({
+      LOBBY_STORE: 'table',
+      AZURE_STORAGE_TABLE_ENDPOINT: 'https://example.table.core.windows.net',
+      AZURE_STORAGE_TABLE_NAME: 'flipseven',
+    })
+
+    assert.equal(config.tableStorage?.tableName, 'flipseven')
   })
 })
