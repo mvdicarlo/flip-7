@@ -77,6 +77,74 @@ describe('lobby API', () => {
     assert.equal(duplicateResponse.body.error.code, 'PLAYER_NAME_TAKEN')
   })
 
+  it('only lets the host remove joined players', async () => {
+    const app = makeApp('HJKLM')
+    const createResponse = await request(app)
+      .post('/api/lobbies')
+      .send({ hostName: 'Host' })
+      .expect(201)
+    const joinResponse = await request(app)
+      .post('/api/lobbies/HJKLM/players')
+      .send({ name: 'Taylor' })
+      .expect(201)
+    const host = createResponse.body.session
+    const player = joinResponse.body.session
+
+    const missingTokenResponse = await request(app)
+      .delete(`/api/lobbies/HJKLM/players/${player.playerId}`)
+      .expect(401)
+    assert.equal(
+      missingTokenResponse.body.error.code,
+      'SESSION_UNAUTHORIZED',
+    )
+
+    const invalidTokenResponse = await request(app)
+      .delete(`/api/lobbies/HJKLM/players/${player.playerId}`)
+      .set('Authorization', 'Bearer invalid-token')
+      .expect(401)
+    assert.equal(
+      invalidTokenResponse.body.error.code,
+      'SESSION_UNAUTHORIZED',
+    )
+
+    const playerTokenResponse = await request(app)
+      .delete(`/api/lobbies/HJKLM/players/${player.playerId}`)
+      .set('Authorization', `Bearer ${player.token}`)
+      .expect(403)
+    assert.equal(playerTokenResponse.body.error.code, 'HOST_ONLY')
+
+    const hostRemovalResponse = await request(app)
+      .delete(`/api/lobbies/HJKLM/players/${host.playerId}`)
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(400)
+    assert.equal(
+      hostRemovalResponse.body.error.code,
+      'HOST_CANNOT_BE_REMOVED',
+    )
+
+    const removeResponse = await request(app)
+      .delete(`/api/lobbies/HJKLM/players/${player.playerId}`)
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.deepEqual(
+      removeResponse.body.lobby.players.map(
+        (lobbyPlayer: { name: string }) => lobbyPlayer.name,
+      ),
+      ['Host'],
+    )
+
+    const getResponse = await request(app)
+      .get('/api/lobbies/HJKLM')
+      .expect(200)
+    assert.deepEqual(
+      getResponse.body.lobby.players.map(
+        (lobbyPlayer: { name: string }) => lobbyPlayer.name,
+      ),
+      ['Host'],
+    )
+  })
+
   it('returns useful errors for invalid and unknown lobbies', async () => {
     const app = makeApp()
     const invalidResponse = await request(app)

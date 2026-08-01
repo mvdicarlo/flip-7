@@ -44,6 +44,21 @@ export async function getLobby(code: string): Promise<LobbyView> {
   return result.lobby
 }
 
+export async function removeLobbyPlayer(
+  code: string,
+  playerId: string,
+  token: string,
+): Promise<LobbyView> {
+  const result = await apiRequest<LobbyEnvelope>(
+    `/api/lobbies/${encodeURIComponent(code)}/players/${encodeURIComponent(playerId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  return result.lobby
+}
+
 async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,

@@ -8,6 +8,7 @@ import {
   House,
   LoaderCircle,
   Share2,
+  UserMinus,
   Users,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -22,7 +23,7 @@ import {
 } from 'react-router-dom'
 import type { LobbyView } from '../shared/contracts'
 import cardFan from './assets/card-fan.svg'
-import { createLobby, getLobby, joinLobby } from './lib/api'
+import { createLobby, getLobby, joinLobby, removeLobbyPlayer } from './lib/api'
 import { getLobbySession, saveLobbySession } from './lib/session'
 import './flip-seven.css'
 
@@ -275,6 +276,8 @@ function LobbyPage() {
   const [error, setError] = useState('')
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [removeError, setRemoveError] = useState('')
+  const [removingPlayerId, setRemovingPlayerId] = useState<string | null>(null)
 
   useEffect(() => {
     let isCurrent = true
@@ -338,6 +341,32 @@ function LobbyPage() {
     showCopied()
   }
 
+  const handleRemovePlayer = async (playerId: string, playerName: string) => {
+    if (
+      session?.role !== 'host' ||
+      removingPlayerId ||
+      !window.confirm(`Remove ${playerName} from this lobby?`)
+    ) {
+      return
+    }
+
+    setRemoveError('')
+    setRemovingPlayerId(playerId)
+
+    try {
+      const nextLobby = await removeLobbyPlayer(
+        code,
+        playerId,
+        session.token,
+      )
+      setLobby(nextLobby)
+    } catch (requestError) {
+      setRemoveError(toErrorMessage(requestError))
+    } finally {
+      setRemovingPlayerId(null)
+    }
+  }
+
   if (!lobby && error) {
     return (
       <div className="app-shell lobby-shell">
@@ -370,6 +399,30 @@ function LobbyPage() {
         <main className="state-page" aria-live="polite">
           <LoaderCircle className="loading-icon" aria-hidden="true" />
           <h1>Opening lobby</h1>
+        </main>
+      </div>
+    )
+  }
+
+  if (
+    session?.role === 'player' &&
+    !lobby.players.some((player) => player.id === session.playerId)
+  ) {
+    return (
+      <div className="app-shell lobby-shell">
+        <SiteHeader />
+        <main className="state-page">
+          <p className="eyebrow">Seat released</p>
+          <h1>You were removed from this lobby.</h1>
+          <div className="state-actions">
+            <Link className="primary-button compact-button" to={`/join/${code}`}>
+              Join again
+            </Link>
+            <Link className="secondary-button compact-button" to="/">
+              <House aria-hidden="true" />
+              Home
+            </Link>
+          </div>
         </main>
       </div>
     )
@@ -448,15 +501,31 @@ function LobbyPage() {
                     {player.name}
                     {player.id === session?.playerId && <small>You</small>}
                   </span>
-                  {player.role === 'host' && (
+                  {player.role === 'host' ? (
                     <span className="host-badge">
                       <Crown aria-hidden="true" />
                       Host
                     </span>
-                  )}
+                  ) : session?.role === 'host' ? (
+                    <button
+                      className="remove-player-button"
+                      type="button"
+                      aria-label={`Remove ${player.name}`}
+                      title={`Remove ${player.name}`}
+                      disabled={removingPlayerId !== null}
+                      onClick={() => handleRemovePlayer(player.id, player.name)}
+                    >
+                      {removingPlayerId === player.id ? (
+                        <LoaderCircle className="button-spinner" aria-hidden="true" />
+                      ) : (
+                        <UserMinus aria-hidden="true" />
+                      )}
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ol>
+            <FormError message={removeError} />
             <p className="waiting-note" aria-live="polite">
               <span aria-hidden="true" />
               Waiting for players

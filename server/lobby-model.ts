@@ -31,6 +31,7 @@ export interface LobbyRepository {
   createLobby(lobby: LobbyRecord, host: PlayerRecord): Promise<void>
   getLobby(code: string): Promise<StoredLobby | null>
   addPlayer(player: PlayerRecord): Promise<void>
+  removePlayer(player: PlayerRecord): Promise<void>
   close(): Promise<void>
 }
 

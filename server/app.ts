@@ -29,6 +29,8 @@ const lobbyCodeSchema = z
     'Enter a valid 5-character lobby code.',
   )
 
+const playerIdSchema = z.string().uuid('Enter a valid player ID.')
+
 export interface AppOptions {
   staticDirectory?: string
 }
@@ -63,6 +65,17 @@ export function createApp(
     const { name } = joinLobbySchema.parse(request.body)
     const result = await lobbyService.joinLobby(code, name)
     response.status(201).json(result)
+  })
+
+  app.delete('/api/lobbies/:code/players/:playerId', async (request, response) => {
+    const code = lobbyCodeSchema.parse(request.params.code)
+    const playerId = playerIdSchema.parse(request.params.playerId)
+    const lobby = await lobbyService.removePlayer(
+      code,
+      playerId,
+      bearerToken(request.headers.authorization),
+    )
+    response.json({ lobby })
   })
 
   app.use('/api', (_request, response) => {
@@ -111,4 +124,14 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => 
 
 function apiError(code: string, message: string): ApiErrorEnvelope {
   return { error: { code, message } }
+}
+
+function bearerToken(authorization: string | undefined): string | undefined {
+  const [scheme, token, extra] = authorization?.trim().split(/\s+/) ?? []
+
+  if (scheme?.toLowerCase() !== 'bearer' || !token || extra) {
+    return undefined
+  }
+
+  return token
 }

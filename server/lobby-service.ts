@@ -1,4 +1,10 @@
-import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto'
+import {
+  createHash,
+  randomBytes,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto'
 import type {
   LobbySessionEnvelope,
   LobbyView,
@@ -133,6 +139,60 @@ export class LobbyService {
     }
   }
 
+  async removePlayer(
+    rawCode: string,
+    playerId: string,
+    sessionToken: string | undefined,
+  ): Promise<LobbyView> {
+    const storedLobby = await this.findLobby(rawCode)
+    const requester = authenticatePlayer(storedLobby.players, sessionToken)
+
+    if (!requester) {
+      throw new LobbyServiceError(
+        'SESSION_UNAUTHORIZED',
+        401,
+        'A valid lobby session is required.',
+      )
+    }
+
+    if (requester.role !== 'host') {
+      throw new LobbyServiceError(
+        'HOST_ONLY',
+        403,
+        'Only the host can remove players.',
+      )
+    }
+
+    const player = storedLobby.players.find(
+      (candidate) => candidate.playerId === playerId,
+    )
+
+    if (!player) {
+      throw new LobbyServiceError(
+        'PLAYER_NOT_FOUND',
+        404,
+        'That player is no longer in the lobby.',
+      )
+    }
+
+    if (player.role === 'host') {
+      throw new LobbyServiceError(
+        'HOST_CANNOT_BE_REMOVED',
+        400,
+        'The lobby host cannot be removed.',
+      )
+    }
+
+    await this.repository.removePlayer(player)
+
+    return toLobbyView({
+      lobby: storedLobby.lobby,
+      players: storedLobby.players.filter(
+        (candidate) => candidate.playerId !== player.playerId,
+      ),
+    })
+  }
+
   private async findLobby(rawCode: string): Promise<StoredLobby> {
     const code = rawCode.trim().toUpperCase()
     const storedLobby = await this.repository.getLobby(code)
@@ -185,6 +245,27 @@ function createPlayer(
     player,
     session: { lobbyCode, playerId, role, token },
   }
+}
+
+function authenticatePlayer(
+  players: PlayerRecord[],
+  token: string | undefined,
+): PlayerRecord | undefined {
+  if (!token) {
+    return undefined
+  }
+
+  const presentedHash = Buffer.from(
+    createHash('sha256').update(token).digest('base64url'),
+  )
+
+  return players.find((player) => {
+    const storedHash = Buffer.from(player.tokenHash)
+    return (
+      storedHash.length === presentedHash.length &&
+      timingSafeEqual(storedHash, presentedHash)
+    )
+  })
 }
 
 function toLobbyView(storedLobby: StoredLobby): LobbyView {

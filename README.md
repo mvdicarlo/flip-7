@@ -85,6 +85,7 @@ The server initializes the table before listening, binds to `0.0.0.0`, and honor
 | `POST` | `/api/lobbies` | Create a lobby with `{ "hostName": "Morgan" }`. |
 | `GET` | `/api/lobbies/:code` | Read the public waiting-room state. |
 | `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
+| `DELETE` | `/api/lobbies/:code/players/:playerId` | Remove a joined player with the host session token as a bearer credential. |
 | `GET` | `/api/health` | App Service health probe. |
 
 Create and join responses include a browser session token. Only token hashes are persisted.

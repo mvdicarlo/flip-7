@@ -96,6 +96,16 @@ export class TableLobbyRepository implements LobbyRepository {
     }
   }
 
+  async removePlayer(player: PlayerRecord): Promise<void> {
+    try {
+      await this.client.deleteEntity(player.lobbyCode, player.id)
+    } catch (error) {
+      if (!isStatus(error, 404)) {
+        throw error
+      }
+    }
+  }
+
   async close(): Promise<void> {
     return Promise.resolve()
   }

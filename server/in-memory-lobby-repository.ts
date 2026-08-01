@@ -53,6 +53,10 @@ export class InMemoryLobbyRepository implements LobbyRepository {
     lobbyPlayers.set(player.id, { ...player })
   }
 
+  async removePlayer(player: PlayerRecord): Promise<void> {
+    this.players.get(player.lobbyCode)?.delete(player.id)
+  }
+
   async close(): Promise<void> {
     return Promise.resolve()
   }
