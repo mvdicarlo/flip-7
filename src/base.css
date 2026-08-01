@@ -1,0 +1,64 @@
+:root {
+  --ink: #191a1f;
+  --paper: #f4f0e8;
+  --surface: #fffdf8;
+  --line: #d8d1c5;
+  --muted: #625f5a;
+  --yellow: #f7ca45;
+  --red: #e95647;
+  --red-dark: #a72c25;
+  --teal: #2e837b;
+  --blue: #3476ba;
+  --display: 'Fredoka Variable', 'Trebuchet MS', sans-serif;
+  --body: 'Nunito Sans Variable', 'Gill Sans', sans-serif;
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(rgb(25 26 31 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(25 26 31 / 4%) 1px, transparent 1px);
+  background-size: 24px 24px;
+  font-family: var(--body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+html {
+  min-width: 320px;
+  background: var(--paper);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  color: var(--ink);
+  background: var(--yellow);
+}
