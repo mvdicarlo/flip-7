@@ -145,6 +145,285 @@ describe('lobby API', () => {
     )
   })
 
+  it('starts a game and totals rounds until a player reaches 200', async () => {
+    const app = makeApp('MNPQR')
+    const createResponse = await request(app)
+      .post('/api/lobbies')
+      .send({ hostName: 'Morgan' })
+      .expect(201)
+    const joinResponse = await request(app)
+      .post('/api/lobbies/MNPQR/players')
+      .send({ name: 'Taylor' })
+      .expect(201)
+    const host = createResponse.body.session
+    const player = joinResponse.body.session
+
+    const playerStartResponse = await request(app)
+      .post('/api/lobbies/MNPQR/game')
+      .set('Authorization', `Bearer ${player.token}`)
+      .expect(403)
+    assert.equal(playerStartResponse.body.error.code, 'HOST_ONLY')
+
+    const startResponse = await request(app)
+      .post('/api/lobbies/MNPQR/game')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.equal(startResponse.body.lobby.status, 'active')
+    assert.equal(startResponse.body.lobby.game.roundNumber, 1)
+    assert.deepEqual(
+      startResponse.body.lobby.players.map(
+        (lobbyPlayer: { score: number }) => lobbyPlayer.score,
+      ),
+      [0, 0],
+    )
+
+    const lateJoinResponse = await request(app)
+      .post('/api/lobbies/MNPQR/players')
+      .send({ name: 'Casey' })
+      .expect(409)
+    assert.equal(lateJoinResponse.body.error.code, 'LOBBY_ALREADY_STARTED')
+
+    const unauthorizedHandResponse = await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .send({
+        numberCards: [12],
+        modifiers: [],
+        busted: false,
+        ready: false,
+      })
+      .expect(401)
+    assert.equal(
+      unauthorizedHandResponse.body.error.code,
+      'SESSION_UNAUTHORIZED',
+    )
+
+    const duplicateCardResponse = await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [12, 12],
+        modifiers: [],
+        busted: false,
+        ready: false,
+      })
+      .expect(400)
+    assert.equal(duplicateCardResponse.body.error.code, 'INVALID_REQUEST')
+
+    const hostHandResponse = await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [12, 11, 10, 9, 8, 7],
+        modifiers: ['times-2', 'plus-6'],
+        busted: false,
+        ready: true,
+      })
+      .expect(200)
+    const hostView = hostHandResponse.body.lobby.players.find(
+      (lobbyPlayer: { id: string }) => lobbyPlayer.id === host.playerId,
+    )
+    assert.equal(hostView.hand.points, 120)
+    assert.deepEqual(hostView.hand.numberCards, [12, 11, 10, 9, 8, 7])
+    assert.equal(hostView.hand.ready, true)
+
+    const incompleteRoundResponse = await request(app)
+      .post('/api/lobbies/MNPQR/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(409)
+    assert.equal(incompleteRoundResponse.body.error.code, 'HANDS_NOT_READY')
+
+    const playerHandResponse = await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .set('Authorization', `Bearer ${player.token}`)
+      .send({
+        numberCards: [12, 11, 10, 9],
+        modifiers: ['times-2', 'plus-6'],
+        busted: false,
+        ready: true,
+      })
+      .expect(200)
+    const playerView = playerHandResponse.body.lobby.players.find(
+      (lobbyPlayer: { id: string }) => lobbyPlayer.id === player.playerId,
+    )
+    assert.equal(playerView.hand.points, 90)
+
+    const getHandsResponse = await request(app)
+      .get('/api/lobbies/MNPQR')
+      .expect(200)
+    assert.deepEqual(
+      getHandsResponse.body.lobby.players.map(
+        (lobbyPlayer: { hand: { points: number; ready: boolean } }) => ({
+          points: lobbyPlayer.hand.points,
+          ready: lobbyPlayer.hand.ready,
+        }),
+      ),
+      [
+        { points: 120, ready: true },
+        { points: 90, ready: true },
+      ],
+    )
+
+    const playerRoundResponse = await request(app)
+      .post('/api/lobbies/MNPQR/game/rounds')
+      .set('Authorization', `Bearer ${player.token}`)
+      .expect(403)
+    assert.equal(playerRoundResponse.body.error.code, 'HOST_ONLY')
+
+    const firstRoundResponse = await request(app)
+      .post('/api/lobbies/MNPQR/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.equal(firstRoundResponse.body.lobby.status, 'active')
+    assert.equal(firstRoundResponse.body.lobby.game.roundNumber, 2)
+    assert.deepEqual(
+      firstRoundResponse.body.lobby.players.map(
+        (lobbyPlayer: { score: number }) => lobbyPlayer.score,
+      ),
+      [120, 90],
+    )
+    assert.deepEqual(firstRoundResponse.body.lobby.game.rounds[0].scores[0].hand, {
+      numberCards: [12, 11, 10, 9, 8, 7],
+      modifiers: ['times-2', 'plus-6'],
+      busted: false,
+    })
+
+    await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [12, 11, 10],
+        modifiers: ['times-2', 'plus-8'],
+        busted: false,
+        ready: true,
+      })
+      .expect(200)
+    await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .set('Authorization', `Bearer ${player.token}`)
+      .send({
+        numberCards: [12, 11, 10, 9, 8, 7],
+        modifiers: ['times-2', 'plus-2'],
+        busted: false,
+        ready: true,
+      })
+      .expect(200)
+
+    const finalRoundResponse = await request(app)
+      .post('/api/lobbies/MNPQR/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.equal(finalRoundResponse.body.lobby.status, 'finished')
+    assert.equal(finalRoundResponse.body.lobby.game.rounds.length, 2)
+    assert.deepEqual(finalRoundResponse.body.lobby.game.winnerIds, [
+      player.playerId,
+    ])
+    assert.deepEqual(
+      finalRoundResponse.body.lobby.players.map(
+        (lobbyPlayer: { score: number }) => lobbyPlayer.score,
+      ),
+      [194, 206],
+    )
+
+    const playerUndoResponse = await request(app)
+      .delete('/api/lobbies/MNPQR/game/rounds/latest')
+      .set('Authorization', `Bearer ${player.token}`)
+      .expect(403)
+    assert.equal(playerUndoResponse.body.error.code, 'HOST_ONLY')
+
+    const undoResponse = await request(app)
+      .delete('/api/lobbies/MNPQR/game/rounds/latest')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.equal(undoResponse.body.lobby.status, 'active')
+    assert.equal(undoResponse.body.lobby.game.roundNumber, 2)
+    assert.equal(undoResponse.body.lobby.game.rounds.length, 1)
+    assert.deepEqual(
+      undoResponse.body.lobby.players.map(
+        (lobbyPlayer: {
+          score: number
+          hand: { points: number; ready: boolean }
+        }) => ({
+          score: lobbyPlayer.score,
+          roundPoints: lobbyPlayer.hand.points,
+          ready: lobbyPlayer.hand.ready,
+        }),
+      ),
+      [
+        { score: 120, roundPoints: 74, ready: false },
+        { score: 90, roundPoints: 116, ready: false },
+      ],
+    )
+
+    await request(app)
+      .put('/api/lobbies/MNPQR/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [12],
+        modifiers: [],
+        busted: false,
+        ready: false,
+      })
+      .expect(200)
+
+    const inProgressUndoResponse = await request(app)
+      .delete('/api/lobbies/MNPQR/game/rounds/latest')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(409)
+    assert.equal(
+      inProgressUndoResponse.body.error.code,
+      'ROUND_IN_PROGRESS',
+    )
+  })
+
+  it('continues when the leading players are tied above 200', async () => {
+    const repository = new InMemoryLobbyRepository()
+    const service = new LobbyService(
+      repository,
+      () => new Date(TEST_NOW),
+      () => 'NPQRS',
+    )
+    const host = (await service.createLobby('Morgan')).session
+    const player = (await service.joinLobby('NPQRS', 'Taylor')).session
+    await service.startGame('NPQRS', host.token)
+
+    const score120 = {
+      numberCards: [12, 11, 10, 9, 8, 7],
+      modifiers: ['times-2' as const, 'plus-6' as const],
+      busted: false,
+      ready: true,
+    }
+
+    for (let round = 0; round < 2; round += 1) {
+      await service.updateHand('NPQRS', score120, host.token)
+      await service.updateHand('NPQRS', score120, player.token)
+      await service.recordRound('NPQRS', host.token)
+    }
+
+    const tiedLobby = await service.getLobby('NPQRS')
+    assert.equal(tiedLobby.status, 'active')
+    assert.equal(tiedLobby.game?.roundNumber, 3)
+    assert.deepEqual(tiedLobby.game?.winnerIds, [])
+
+    await service.updateHand(
+      'NPQRS',
+      { numberCards: [1], modifiers: [], busted: false, ready: true },
+      host.token,
+    )
+    await service.updateHand(
+      'NPQRS',
+      { numberCards: [0], modifiers: [], busted: false, ready: true },
+      player.token,
+    )
+    const finishedLobby = await service.recordRound('NPQRS', host.token)
+
+    assert.equal(finishedLobby.status, 'finished')
+    assert.deepEqual(finishedLobby.game?.winnerIds, [host.playerId])
+  })
+
   it('returns useful errors for invalid and unknown lobbies', async () => {
     const app = makeApp()
     const invalidResponse = await request(app)

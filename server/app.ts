@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from 'express'
 import helmet from 'helmet'
 import { z } from 'zod'
 import type { ApiErrorEnvelope } from '../shared/contracts.js'
+import { SCORE_MODIFIERS } from '../shared/scoring.js'
 import { LobbyService, LobbyServiceError } from './lobby-service.js'
 
 const playerNameSchema = z
@@ -30,6 +31,23 @@ const lobbyCodeSchema = z
   )
 
 const playerIdSchema = z.string().uuid('Enter a valid player ID.')
+
+const handSchema = z.object({
+  numberCards: z
+    .array(z.number().int().min(0).max(12))
+    .max(7)
+    .refine((cards) => new Set(cards).size === cards.length, {
+      message: 'Number cards must be unique.',
+    }),
+  modifiers: z
+    .array(z.enum(SCORE_MODIFIERS))
+    .max(SCORE_MODIFIERS.length)
+    .refine((modifiers) => new Set(modifiers).size === modifiers.length, {
+      message: 'Score modifiers must be unique.',
+    }),
+  busted: z.boolean(),
+  ready: z.boolean(),
+})
 
 export interface AppOptions {
   staticDirectory?: string
@@ -77,6 +95,47 @@ export function createApp(
     )
     response.json({ lobby })
   })
+
+  app.post('/api/lobbies/:code/game', async (request, response) => {
+    const code = lobbyCodeSchema.parse(request.params.code)
+    const lobby = await lobbyService.startGame(
+      code,
+      bearerToken(request.headers.authorization),
+    )
+    response.json({ lobby })
+  })
+
+  app.put('/api/lobbies/:code/game/hand', async (request, response) => {
+    const code = lobbyCodeSchema.parse(request.params.code)
+    const hand = handSchema.parse(request.body)
+    const lobby = await lobbyService.updateHand(
+      code,
+      hand,
+      bearerToken(request.headers.authorization),
+    )
+    response.json({ lobby })
+  })
+
+  app.post('/api/lobbies/:code/game/rounds', async (request, response) => {
+    const code = lobbyCodeSchema.parse(request.params.code)
+    const lobby = await lobbyService.recordRound(
+      code,
+      bearerToken(request.headers.authorization),
+    )
+    response.json({ lobby })
+  })
+
+  app.delete(
+    '/api/lobbies/:code/game/rounds/latest',
+    async (request, response) => {
+      const code = lobbyCodeSchema.parse(request.params.code)
+      const lobby = await lobbyService.undoLastRound(
+        code,
+        bearerToken(request.headers.authorization),
+      )
+      response.json({ lobby })
+    },
+  )
 
   app.use('/api', (_request, response) => {
     response.status(404).json(

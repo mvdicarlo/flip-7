@@ -86,9 +86,14 @@ The server initializes the table before listening, binds to `0.0.0.0`, and honor
 | `GET` | `/api/lobbies/:code` | Read the public waiting-room state. |
 | `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
 | `DELETE` | `/api/lobbies/:code/players/:playerId` | Remove a joined player with the host session token as a bearer credential. |
+| `POST` | `/api/lobbies/:code/game` | Start the game with the host session token. |
+| `PUT` | `/api/lobbies/:code/game/hand` | Save the authenticated player's number cards, modifiers, bust, and ready state. |
+| `POST` | `/api/lobbies/:code/game/rounds` | Complete all ready hands with the host session token. |
+| `DELETE` | `/api/lobbies/:code/game/rounds/latest` | Undo the latest round before the next round begins. |
 | `GET` | `/api/health` | App Service health probe. |
 
 Create and join responses include a browser session token. Only token hashes are persisted.
+The server calculates each hand from its cards, commits completed rounds atomically, and finishes when a sole leading score reaches 200. Tied leaders continue playing.
 
 ## Real-time next step
 

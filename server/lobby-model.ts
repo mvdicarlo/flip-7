@@ -1,4 +1,8 @@
-import type { LobbyStatus, PlayerRole } from '../shared/contracts.js'
+import type {
+  GameRoundScore,
+  LobbyStatus,
+  PlayerRole,
+} from '../shared/contracts.js'
 
 export interface LobbyRecord {
   id: 'lobby'
@@ -7,6 +11,9 @@ export interface LobbyRecord {
   status: LobbyStatus
   createdAt: string
   expiresAt: string
+  currentRound: number
+  startedAt: string
+  finishedAt: string
 }
 
 export interface PlayerRecord {
@@ -20,11 +27,29 @@ export interface PlayerRecord {
   joinedAt: string
   tokenHash: string
   expiresAt: string
+  score: number
+  handRoundNumber: number
+  handNumberCardsJson: string
+  handModifiersJson: string
+  handBusted: boolean
+  handReady: boolean
+  handUpdatedAt: string
+}
+
+export interface RoundRecord {
+  id: string
+  lobbyCode: string
+  type: 'round'
+  roundNumber: number
+  completedAt: string
+  scoresJson: string
+  expiresAt: string
 }
 
 export interface StoredLobby {
   lobby: LobbyRecord
   players: PlayerRecord[]
+  rounds: RoundRecord[]
 }
 
 export interface LobbyRepository {
@@ -32,6 +57,18 @@ export interface LobbyRepository {
   getLobby(code: string): Promise<StoredLobby | null>
   addPlayer(player: PlayerRecord): Promise<void>
   removePlayer(player: PlayerRecord): Promise<void>
+  updatePlayerHand(player: PlayerRecord): Promise<void>
+  startGame(lobby: LobbyRecord): Promise<void>
+  recordRound(
+    lobby: LobbyRecord,
+    players: PlayerRecord[],
+    round: RoundRecord,
+  ): Promise<void>
+  undoRound(
+    lobby: LobbyRecord,
+    players: PlayerRecord[],
+    round: RoundRecord,
+  ): Promise<void>
   close(): Promise<void>
 }
 
@@ -47,4 +84,15 @@ export class PlayerNameConflictError extends Error {
     super('Player name already exists')
     this.name = 'PlayerNameConflictError'
   }
+}
+
+export class GameStateConflictError extends Error {
+  constructor() {
+    super('Game state changed concurrently')
+    this.name = 'GameStateConflictError'
+  }
+}
+
+export function parseRoundScores(round: RoundRecord): GameRoundScore[] {
+  return JSON.parse(round.scoresJson) as GameRoundScore[]
 }

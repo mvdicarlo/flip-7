@@ -1,5 +1,6 @@
 import type {
   ApiErrorEnvelope,
+  HandSelection,
   LobbyEnvelope,
   LobbySessionEnvelope,
   LobbyView,
@@ -54,6 +55,64 @@ export async function removeLobbyPlayer(
     {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  return result.lobby
+}
+
+export async function startLobbyGame(
+  code: string,
+  token: string,
+): Promise<LobbyView> {
+  const result = await apiRequest<LobbyEnvelope>(
+    `/api/lobbies/${encodeURIComponent(code)}/game`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  return result.lobby
+}
+
+export async function recordLobbyRound(
+  code: string,
+  token: string,
+): Promise<LobbyView> {
+  const result = await apiRequest<LobbyEnvelope>(
+    `/api/lobbies/${encodeURIComponent(code)}/game/rounds`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  return result.lobby
+}
+
+export async function undoLobbyRound(
+  code: string,
+  token: string,
+): Promise<LobbyView> {
+  const result = await apiRequest<LobbyEnvelope>(
+    `/api/lobbies/${encodeURIComponent(code)}/game/rounds/latest`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  return result.lobby
+}
+
+export async function updateLobbyHand(
+  code: string,
+  hand: HandSelection & { ready: boolean },
+  token: string,
+): Promise<LobbyView> {
+  const result = await apiRequest<LobbyEnvelope>(
+    `/api/lobbies/${encodeURIComponent(code)}/game/hand`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(hand),
     },
   )
   return result.lobby

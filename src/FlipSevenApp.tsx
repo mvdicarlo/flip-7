@@ -1,13 +1,26 @@
-import { type FormEvent, startTransition, useEffect, useState } from 'react'
+import {
+  type FormEvent,
+  startTransition,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   ArrowLeft,
   ArrowRight,
   Check,
   Clipboard,
+  CloudOff,
   Crown,
+  History,
   House,
   LoaderCircle,
+  Play,
+  RotateCcw,
   Share2,
+  Target,
+  Trophy,
+  Undo2,
   UserMinus,
   Users,
 } from 'lucide-react'
@@ -21,13 +34,36 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom'
-import type { LobbyView } from '../shared/contracts'
+import type {
+  HandSelection,
+  LobbyView,
+  PlayerRoundHand,
+  PlayerSession,
+  ScoreModifier,
+} from '../shared/contracts'
+import {
+  calculateHandScore,
+  NUMBER_CARDS,
+  SCORE_MODIFIER_LABELS,
+  SCORE_MODIFIERS,
+} from '../shared/scoring'
 import cardFan from './assets/card-fan.svg'
-import { createLobby, getLobby, joinLobby, removeLobbyPlayer } from './lib/api'
+import {
+  ApiClientError,
+  createLobby,
+  getLobby,
+  joinLobby,
+  recordLobbyRound,
+  removeLobbyPlayer,
+  startLobbyGame,
+  undoLobbyRound,
+  updateLobbyHand,
+} from './lib/api'
 import { getLobbySession, saveLobbySession } from './lib/session'
 import './flip-seven.css'
 
 type HomeMode = 'create' | 'join'
+type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'unavailable'
 
 function App() {
   return (
@@ -276,8 +312,11 @@ function LobbyPage() {
   const [error, setError] = useState('')
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [copied, setCopied] = useState(false)
-  const [removeError, setRemoveError] = useState('')
+  const [actionError, setActionError] = useState('')
   const [removingPlayerId, setRemovingPlayerId] = useState<string | null>(null)
+  const [isStarting, setIsStarting] = useState(false)
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>('connecting')
 
   useEffect(() => {
     let isCurrent = true
@@ -298,15 +337,22 @@ function LobbyPage() {
           hasLoaded = true
         }
         setError('')
+        setConnectionState('live')
       } catch (requestError) {
         if (isCurrent) {
           setError(toErrorMessage(requestError))
+          setConnectionState(
+            requestError instanceof ApiClientError &&
+              requestError.code === 'LOBBY_NOT_FOUND'
+              ? 'unavailable'
+              : 'reconnecting',
+          )
         }
       }
     }
 
     void refreshLobby()
-    const interval = window.setInterval(() => void refreshLobby(), 3_000)
+    const interval = window.setInterval(() => void refreshLobby(), 1_000)
 
     return () => {
       isCurrent = false
@@ -316,6 +362,7 @@ function LobbyPage() {
 
   const inviteUrl = `${window.location.origin}/join/${code}`
   const session = getLobbySession(code)
+  const isConnected = connectionState === 'live'
 
   const showCopied = () => {
     setCopied(true)
@@ -344,13 +391,14 @@ function LobbyPage() {
   const handleRemovePlayer = async (playerId: string, playerName: string) => {
     if (
       session?.role !== 'host' ||
+      !isConnected ||
       removingPlayerId ||
       !window.confirm(`Remove ${playerName} from this lobby?`)
     ) {
       return
     }
 
-    setRemoveError('')
+    setActionError('')
     setRemovingPlayerId(playerId)
 
     try {
@@ -361,9 +409,32 @@ function LobbyPage() {
       )
       setLobby(nextLobby)
     } catch (requestError) {
-      setRemoveError(toErrorMessage(requestError))
+      setActionError(toErrorMessage(requestError))
     } finally {
       setRemovingPlayerId(null)
+    }
+  }
+
+  const handleStartGame = async () => {
+    if (
+      session?.role !== 'host' ||
+      !isConnected ||
+      isStarting ||
+      !lobby ||
+      lobby.players.length < 2
+    ) {
+      return
+    }
+
+    setActionError('')
+    setIsStarting(true)
+
+    try {
+      setLobby(await startLobbyGame(code, session.token))
+    } catch (requestError) {
+      setActionError(toErrorMessage(requestError))
+    } finally {
+      setIsStarting(false)
     }
   }
 
@@ -428,6 +499,19 @@ function LobbyPage() {
     )
   }
 
+  if (lobby.status !== 'waiting' && lobby.game) {
+    return (
+      <GamePage
+        key={`${lobby.status}:${lobby.game.roundNumber}`}
+        lobby={lobby}
+        session={session}
+        connectionState={connectionState}
+        connectionMessage={error}
+        onLobbyChange={setLobby}
+      />
+    )
+  }
+
   return (
     <div className="app-shell lobby-shell">
       <SiteHeader />
@@ -437,11 +521,13 @@ function LobbyPage() {
             <p className="kicker">Waiting room</p>
             <h1>{session?.role === 'host' ? 'Your lobby is open' : 'You are in'}</h1>
           </div>
-          <span className="status-chip">
+          <span className={`status-chip connection-${connectionState}`}>
             <span aria-hidden="true" />
-            Live
+            {connectionLabel(connectionState, 'Live')}
           </span>
         </div>
+
+        <ConnectionBanner state={connectionState} message={error} />
 
         <section className="code-banner" aria-labelledby="lobby-code-title">
           <div>
@@ -512,7 +598,7 @@ function LobbyPage() {
                       type="button"
                       aria-label={`Remove ${player.name}`}
                       title={`Remove ${player.name}`}
-                      disabled={removingPlayerId !== null}
+                      disabled={!isConnected || removingPlayerId !== null}
                       onClick={() => handleRemovePlayer(player.id, player.name)}
                     >
                       {removingPlayerId === player.id ? (
@@ -525,16 +611,657 @@ function LobbyPage() {
                 </li>
               ))}
             </ol>
-            <FormError message={removeError} />
+            <FormError message={actionError} />
+            {session?.role === 'host' && (
+              <button
+                className="primary-button start-game-button"
+                type="button"
+                disabled={
+                  !isConnected || lobby.players.length < 2 || isStarting
+                }
+                onClick={handleStartGame}
+              >
+                <span>{isStarting ? 'Starting game' : 'Start game'}</span>
+                {isStarting ? (
+                  <LoaderCircle className="button-spinner" aria-hidden="true" />
+                ) : (
+                  <Play aria-hidden="true" />
+                )}
+              </button>
+            )}
             <p className="waiting-note" aria-live="polite">
               <span aria-hidden="true" />
-              Waiting for players
+              {lobby.players.length < 2
+                ? 'Waiting for one more player'
+                : session?.role === 'host'
+                  ? 'Table is ready'
+                  : 'Waiting for the host to start'}
             </p>
           </section>
         </div>
       </main>
       <SiteFooter />
     </div>
+  )
+}
+
+interface GamePageProps {
+  lobby: LobbyView
+  session: PlayerSession | null
+  connectionState: ConnectionState
+  connectionMessage: string
+  onLobbyChange: (lobby: LobbyView) => void
+}
+
+function GamePage({
+  lobby,
+  session,
+  connectionState,
+  connectionMessage,
+  onLobbyChange,
+}: GamePageProps) {
+  const game = lobby.game
+  const currentPlayer = lobby.players.find(
+    (player) => player.id === session?.playerId,
+  )
+  const [draftHand, setDraftHand] = useState<PlayerRoundHand | null>(
+    () => currentPlayer?.hand ?? null,
+  )
+  const [handError, setHandError] = useState('')
+  const [handSaveState, setHandSaveState] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle')
+  const [roundError, setRoundError] = useState('')
+  const [isCompletingRound, setIsCompletingRound] = useState(false)
+  const [undoError, setUndoError] = useState('')
+  const [isUndoingRound, setIsUndoingRound] = useState(false)
+  const handSaveQueue = useRef<Promise<void>>(Promise.resolve())
+  const handSaveVersion = useRef(0)
+
+  if (!game) {
+    return null
+  }
+
+  const displayedPlayers = lobby.players.map((player) =>
+    player.id === currentPlayer?.id && draftHand
+      ? { ...player, hand: draftHand }
+      : player,
+  )
+  const projectedScore = (player: (typeof displayedPlayers)[number]) =>
+    player.score + (lobby.status === 'active' ? player.hand.points : 0)
+  const standings = [...displayedPlayers].sort(
+    (left, right) =>
+      projectedScore(right) - projectedScore(left) ||
+      left.joinedAt.localeCompare(right.joinedAt),
+  )
+  const playersById = new Map(
+    lobby.players.map((player) => [player.id, player]),
+  )
+  const winnerNames = game.winnerIds
+    .map((playerId) => playersById.get(playerId)?.name)
+    .filter((name): name is string => Boolean(name))
+  const readyCount = lobby.players.filter((player) => player.hand.ready).length
+  const allHandsReady = readyCount === lobby.players.length
+  const isConnected = connectionState === 'live'
+  const latestRound = game.rounds.at(-1)
+  const currentRoundHasChanges =
+    lobby.status === 'active' &&
+    lobby.players.some((player) => player.hand.updatedAt !== null)
+  const canUndoRound = Boolean(latestRound) && !currentRoundHasChanges
+
+  const persistHand = (nextHand: HandSelection & { ready: boolean }) => {
+    if (
+      !session ||
+      !currentPlayer ||
+      lobby.status !== 'active' ||
+      !isConnected
+    ) {
+      return
+    }
+
+    const score = calculateHandScore(nextHand)
+    const optimisticHand: PlayerRoundHand = {
+      ...nextHand,
+      points: score.points,
+      hasFlip7: score.hasFlip7,
+      updatedAt: new Date().toISOString(),
+    }
+    const version = handSaveVersion.current + 1
+    handSaveVersion.current = version
+    setDraftHand(optimisticHand)
+    setHandError('')
+    setHandSaveState('saving')
+
+    handSaveQueue.current = handSaveQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        const nextLobby = await updateLobbyHand(
+          lobby.code,
+          nextHand,
+          session.token,
+        )
+        onLobbyChange(nextLobby)
+
+        if (version === handSaveVersion.current) {
+          const savedPlayer = nextLobby.players.find(
+            (player) => player.id === currentPlayer.id,
+          )
+          setDraftHand(savedPlayer?.hand ?? optimisticHand)
+          setHandSaveState('saved')
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (version === handSaveVersion.current) {
+          setHandError(toErrorMessage(requestError))
+          setHandSaveState('error')
+          setDraftHand((currentHand) =>
+            currentHand ? { ...currentHand, ready: false } : currentHand,
+          )
+        }
+      })
+  }
+
+  const handleRoundComplete = async () => {
+    if (
+      session?.role !== 'host' ||
+      lobby.status !== 'active' ||
+      !allHandsReady ||
+      isCompletingRound ||
+      !isConnected
+    ) {
+      return
+    }
+
+    setRoundError('')
+    setIsCompletingRound(true)
+
+    try {
+      onLobbyChange(await recordLobbyRound(lobby.code, session.token))
+    } catch (requestError) {
+      setRoundError(toErrorMessage(requestError))
+    } finally {
+      setIsCompletingRound(false)
+    }
+  }
+
+  const handleUndoRound = async () => {
+    if (
+      session?.role !== 'host' ||
+      !latestRound ||
+      !canUndoRound ||
+      !isConnected ||
+      isUndoingRound ||
+      !window.confirm(
+        `Undo round ${latestRound.number}? Its points will be removed and its cards restored for editing.`,
+      )
+    ) {
+      return
+    }
+
+    setUndoError('')
+    setIsUndoingRound(true)
+
+    try {
+      onLobbyChange(await undoLobbyRound(lobby.code, session.token))
+    } catch (requestError) {
+      setUndoError(toErrorMessage(requestError))
+    } finally {
+      setIsUndoingRound(false)
+    }
+  }
+
+  return (
+    <div className="app-shell game-shell">
+      <SiteHeader />
+      <main className="game-main">
+        <div className="game-heading">
+          <div>
+            <p className="kicker">Game {lobby.code}</p>
+            <h1>
+              {lobby.status === 'finished'
+                ? 'Game complete'
+                : `Round ${game.roundNumber}`}
+            </h1>
+          </div>
+          <span
+            className={`status-chip game-status ${lobby.status} connection-${connectionState}`}
+          >
+            <span aria-hidden="true" />
+            {connectionLabel(
+              connectionState,
+              lobby.status === 'finished' ? 'Final' : 'In play',
+            )}
+          </span>
+        </div>
+
+        <ConnectionBanner
+          state={connectionState}
+          message={connectionMessage}
+        />
+
+        {lobby.status === 'finished' && (
+          <section className="winner-banner" aria-labelledby="winner-title">
+            <Trophy aria-hidden="true" />
+            <div>
+              <p className="eyebrow">
+                {winnerNames.length === 1 ? 'Winner' : 'Winners'}
+              </p>
+              <h2 id="winner-title">{winnerNames.join(' & ')}</h2>
+              <p>{standings[0]?.score ?? 0} points</p>
+            </div>
+          </section>
+        )}
+
+        <div
+          className={`game-grid ${
+            lobby.status === 'finished' ? 'game-grid-finished' : ''
+          }`}
+        >
+          <section className="scoreboard-pane" aria-labelledby="standings-title">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">First to {game.targetScore}</p>
+                <h2 id="standings-title">Standings</h2>
+              </div>
+              <Target aria-hidden="true" />
+            </div>
+            <ol className="scoreboard-list">
+              {standings.map((player, index) => {
+                const liveTotal = projectedScore(player)
+                return (
+                <li
+                  className={`${player.hand.ready ? 'hand-ready' : ''} ${
+                    player.hand.busted ? 'hand-busted' : ''
+                  }`}
+                  key={player.id}
+                >
+                  <span className="rank-number">{index + 1}</span>
+                  <span
+                    className={`player-token token-${index % 4}`}
+                    aria-hidden="true"
+                  >
+                    {player.name.charAt(0).toUpperCase()}
+                  </span>
+                  <div className="standing-player">
+                    <span className="standing-name">
+                      <span>
+                        {player.name}
+                        {player.id === session?.playerId && <small>You</small>}
+                      </span>
+                      <small className="hand-state">
+                        {player.hand.busted
+                          ? 'Bust'
+                          : player.hand.ready
+                            ? 'Ready'
+                            : 'Choosing'}
+                      </small>
+                    </span>
+                    {lobby.status === 'active' && (
+                      <HandChips hand={player.hand} />
+                    )}
+                    {lobby.status === 'active' && (
+                      <span className="score-breakdown">
+                        <span>
+                          Banked <b>{player.score}</b>
+                        </span>
+                        <span>
+                          This round <b>+{player.hand.points}</b>
+                        </span>
+                      </span>
+                    )}
+                    <span
+                      className="score-track"
+                      role="progressbar"
+                      aria-label={`${player.name} score`}
+                      aria-valuemin={0}
+                      aria-valuemax={game.targetScore}
+                      aria-valuenow={Math.min(liveTotal, game.targetScore)}
+                    >
+                      <span
+                        style={{
+                          width: `${Math.min(100, (liveTotal / game.targetScore) * 100)}%`,
+                        }}
+                      />
+                    </span>
+                  </div>
+                  <span className="score-total">
+                    <strong>{liveTotal}</strong>
+                    <small>
+                      {lobby.status === 'active' ? 'Projected' : 'Total'}
+                    </small>
+                  </span>
+                </li>
+              )})}
+            </ol>
+          </section>
+
+          {lobby.status === 'active' && currentPlayer && draftHand ? (
+            <div className="game-side-column">
+              <HandEditor
+                hand={draftHand}
+                saveState={handSaveState}
+                error={handError}
+                disabled={!isConnected}
+                onChange={persistHand}
+              />
+              <section className="round-control-pane" aria-live="polite">
+                <div>
+                  <p className="eyebrow">Round readiness</p>
+                  <strong>
+                    {readyCount} / {lobby.players.length} ready
+                  </strong>
+                </div>
+                {session?.role === 'host' ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={
+                      !isConnected || !allHandsReady || isCompletingRound
+                    }
+                    onClick={handleRoundComplete}
+                  >
+                    <span>
+                      {isCompletingRound ? 'Completing round' : 'Complete round'}
+                    </span>
+                    {isCompletingRound ? (
+                      <LoaderCircle
+                        className="button-spinner"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <ArrowRight aria-hidden="true" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="host-will-complete">
+                    Host completes the round
+                  </span>
+                )}
+                <FormError message={roundError} />
+              </section>
+            </div>
+          ) : lobby.status === 'active' ? (
+            <section className="round-status-pane" aria-live="polite">
+              <Target aria-hidden="true" />
+              <div>
+                <p className="eyebrow">Round {game.roundNumber}</p>
+                <h2>Scores are being tallied</h2>
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        {game.rounds.length > 0 && (
+          <section className="history-pane" aria-labelledby="history-title">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Score log</p>
+                <h2 id="history-title">Round history</h2>
+              </div>
+              <div className="history-heading-actions">
+                <History aria-hidden="true" />
+                {session?.role === 'host' && (
+                  <button
+                    className="undo-round-button"
+                    type="button"
+                    aria-label={`Undo round ${latestRound?.number ?? ''}`}
+                    title={
+                      currentRoundHasChanges
+                        ? 'Undo is unavailable after the next round begins'
+                        : 'Undo last round'
+                    }
+                    disabled={
+                      !isConnected || !canUndoRound || isUndoingRound
+                    }
+                    onClick={handleUndoRound}
+                  >
+                    {isUndoingRound ? (
+                      <LoaderCircle
+                        className="button-spinner"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Undo2 aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            <FormError message={undoError} />
+            <ol className="round-history-list">
+              {[...game.rounds].reverse().map((round) => (
+                <li key={round.number}>
+                  <strong>Round {round.number}</strong>
+                  <div>
+                    {round.scores.map((score) => (
+                      <span className="history-score" key={score.playerId}>
+                        <span>
+                          <b>{playersById.get(score.playerId)?.name}</b>
+                          <HandChips hand={score.hand} />
+                        </span>
+                        <small>
+                          +{score.points} / {score.total} total
+                        </small>
+                      </span>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+      </main>
+      <SiteFooter />
+    </div>
+  )
+}
+
+interface HandEditorProps {
+  hand: PlayerRoundHand
+  saveState: 'idle' | 'saving' | 'saved' | 'error'
+  error: string
+  disabled: boolean
+  onChange: (hand: HandSelection & { ready: boolean }) => void
+}
+
+function HandEditor({
+  hand,
+  saveState,
+  error,
+  disabled,
+  onChange,
+}: HandEditorProps) {
+  const score = calculateHandScore(hand)
+  const hasCard = hand.numberCards.length > 0 || hand.modifiers.length > 0
+  const canMarkReady = hasCard || hand.busted
+
+  const changeHand = (changes: Partial<HandSelection>) => {
+    if (hand.ready) {
+      return
+    }
+
+    onChange({
+      numberCards: hand.numberCards,
+      modifiers: hand.modifiers,
+      busted: hand.busted,
+      ...changes,
+      ready: false,
+    })
+  }
+
+  const toggleNumberCard = (card: number) => {
+    const isSelected = hand.numberCards.includes(card)
+
+    if (!isSelected && hand.numberCards.length === 7) {
+      return
+    }
+
+    changeHand({
+      numberCards: isSelected
+        ? hand.numberCards.filter((numberCard) => numberCard !== card)
+        : [...hand.numberCards, card].sort((left, right) => left - right),
+    })
+  }
+
+  const toggleModifier = (modifier: ScoreModifier) => {
+    const isSelected = hand.modifiers.includes(modifier)
+    changeHand({
+      modifiers: isSelected
+        ? hand.modifiers.filter((scoreModifier) => scoreModifier !== modifier)
+        : [...hand.modifiers, modifier],
+    })
+  }
+
+  return (
+    <section className="hand-entry-pane" aria-labelledby="hand-entry-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Your cards</p>
+          <h2 id="hand-entry-title">Your hand</h2>
+        </div>
+        <span className={`hand-save-state ${saveState}`} aria-live="polite">
+          {saveState === 'saving'
+            ? 'Saving'
+            : saveState === 'error'
+              ? 'Not saved'
+              : saveState === 'saved'
+                ? 'Saved'
+                : 'Live'}
+        </span>
+      </div>
+
+      <div className={`hand-score-preview ${hand.busted ? 'busted' : ''}`}>
+        <span>{hand.busted ? 'Bust score' : 'Round score'}</span>
+        <strong>{score.points}</strong>
+        {!hand.busted && (
+          <small>
+            {score.numberTotal}
+            {score.hasMultiplier ? ' x 2' : ''}
+            {score.modifierTotal > 0 ? ` + ${score.modifierTotal}` : ''}
+            {score.hasFlip7 ? ' + 15' : ''}
+          </small>
+        )}
+      </div>
+
+      <fieldset className="card-selector">
+        <legend>Number cards</legend>
+        <div className="number-card-grid">
+          {NUMBER_CARDS.map((card) => {
+            const isSelected = hand.numberCards.includes(card)
+            return (
+              <button
+                className={isSelected ? 'is-selected' : ''}
+                type="button"
+                key={card}
+                aria-pressed={isSelected}
+                disabled={
+                  disabled ||
+                  hand.ready ||
+                  (!isSelected && hand.numberCards.length === 7)
+                }
+                onClick={() => toggleNumberCard(card)}
+              >
+                {card}
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
+
+      <fieldset className="card-selector">
+        <legend>Modifiers</legend>
+        <div className="modifier-card-grid">
+          {SCORE_MODIFIERS.map((modifier) => {
+            const isSelected = hand.modifiers.includes(modifier)
+            return (
+              <button
+                className={isSelected ? 'is-selected' : ''}
+                type="button"
+                key={modifier}
+                aria-pressed={isSelected}
+                disabled={disabled || hand.ready}
+                onClick={() => toggleModifier(modifier)}
+              >
+                {SCORE_MODIFIER_LABELS[modifier]}
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
+
+      <div className="bust-selector" role="group" aria-label="Hand result">
+        <button
+          className={!hand.busted ? 'is-selected' : ''}
+          type="button"
+          aria-pressed={!hand.busted}
+          disabled={disabled || hand.ready}
+          onClick={() => changeHand({ busted: false })}
+        >
+          Scoring
+        </button>
+        <button
+          className={hand.busted ? 'is-busted' : ''}
+          type="button"
+          aria-pressed={hand.busted}
+          disabled={disabled || hand.ready}
+          onClick={() => changeHand({ busted: true })}
+        >
+          Busted
+        </button>
+      </div>
+
+      <FormError message={error} />
+      <button
+        className={hand.ready ? 'secondary-button hand-ready-button' : 'primary-button hand-ready-button'}
+        type="button"
+        disabled={disabled || (!hand.ready && !canMarkReady)}
+        onClick={() =>
+          onChange({
+            numberCards: hand.numberCards,
+            modifiers: hand.modifiers,
+            busted: hand.busted,
+            ready: !hand.ready,
+          })
+        }
+      >
+        <span>{hand.ready ? 'Edit hand' : 'Hand ready'}</span>
+        {hand.ready ? (
+          <RotateCcw aria-hidden="true" />
+        ) : (
+          <Check aria-hidden="true" />
+        )}
+      </button>
+    </section>
+  )
+}
+
+function HandChips({ hand }: { hand: HandSelection & { hasFlip7?: boolean } }) {
+  if (hand.numberCards.length === 0 && hand.modifiers.length === 0) {
+    return (
+      <span className={`live-hand-chips ${hand.busted ? 'busted-hand' : 'empty-hand'}`}>
+        {hand.busted ? 'Bust - 0 points' : 'No cards yet'}
+      </span>
+    )
+  }
+
+  return (
+    <span className="live-hand-chips">
+      {hand.numberCards.map((card) => (
+        <span className="mini-number-card" key={card}>
+          {card}
+        </span>
+      ))}
+      {hand.modifiers.map((modifier) => (
+        <span className="mini-modifier-card" key={modifier}>
+          {SCORE_MODIFIER_LABELS[modifier]}
+        </span>
+      ))}
+      {hand.busted ? (
+        <span className="bust-chip">Bust - 0</span>
+      ) : (hand.hasFlip7 ?? hand.numberCards.length === 7) ? (
+        <span className="flip-seven-chip">Flip 7 +15</span>
+      ) : null}
+    </span>
   )
 }
 
@@ -617,6 +1344,56 @@ function FormError({ message }: { message: string }) {
       {message}
     </p>
   )
+}
+
+function ConnectionBanner({
+  state,
+  message,
+}: {
+  state: ConnectionState
+  message: string
+}) {
+  if (state === 'live' || state === 'connecting') {
+    return null
+  }
+
+  const isUnavailable = state === 'unavailable'
+
+  return (
+    <section
+      className={`connection-banner ${state}`}
+      role={isUnavailable ? 'alert' : 'status'}
+      aria-live="polite"
+    >
+      <CloudOff aria-hidden="true" />
+      <div>
+        <strong>
+          {isUnavailable ? 'Lobby unavailable' : 'Trying to reconnect'}
+        </strong>
+        <span>
+          {message ||
+            (isUnavailable
+              ? 'This game may no longer be available.'
+              : 'Game actions will return when the connection is restored.')}
+        </span>
+      </div>
+    </section>
+  )
+}
+
+function connectionLabel(
+  state: ConnectionState,
+  connectedLabel: string,
+): string {
+  if (state === 'live') {
+    return connectedLabel
+  }
+
+  if (state === 'unavailable') {
+    return 'Unavailable'
+  }
+
+  return state === 'connecting' ? 'Connecting' : 'Reconnecting'
 }
 
 function SiteHeader() {

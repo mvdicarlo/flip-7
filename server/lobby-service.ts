@@ -6,17 +6,24 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 import type {
+  GameRoundScore,
+  HandSelection,
   LobbySessionEnvelope,
   LobbyView,
   PlayerRole,
   PlayerSession,
+  ScoreModifier,
 } from '../shared/contracts.js'
+import { calculateHandScore } from '../shared/scoring.js'
 import {
+  GameStateConflictError,
   LobbyCodeConflictError,
   PlayerNameConflictError,
+  parseRoundScores,
   type LobbyRecord,
   type LobbyRepository,
   type PlayerRecord,
+  type RoundRecord,
   type StoredLobby,
 } from './lobby-model.js'
 
@@ -24,6 +31,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const CODE_LENGTH = 5
 const LOBBY_LIFETIME_SECONDS = 12 * 60 * 60
 const MAX_CODE_ATTEMPTS = 10
+const MAX_PLAYERS = 18
+const TARGET_SCORE = 200
 
 type Clock = () => Date
 type CodeGenerator = () => string
@@ -69,6 +78,9 @@ export class LobbyService {
         status: 'waiting',
         createdAt: createdAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
+        currentRound: 0,
+        startedAt: '',
+        finishedAt: '',
       }
       const { player, session } = createPlayer(
         code,
@@ -80,7 +92,10 @@ export class LobbyService {
 
       try {
         await this.repository.createLobby(lobby, player)
-        return { lobby: toLobbyView({ lobby, players: [player] }), session }
+        return {
+          lobby: toLobbyView({ lobby, players: [player], rounds: [] }),
+          session,
+        }
       } catch (error) {
         if (error instanceof LobbyCodeConflictError) {
           continue
@@ -107,6 +122,23 @@ export class LobbyService {
     playerName: string,
   ): Promise<LobbySessionEnvelope> {
     const storedLobby = await this.findLobby(rawCode)
+
+    if (storedLobby.lobby.status !== 'waiting') {
+      throw new LobbyServiceError(
+        'LOBBY_ALREADY_STARTED',
+        409,
+        'This lobby has already started its game.',
+      )
+    }
+
+    if (storedLobby.players.length >= MAX_PLAYERS) {
+      throw new LobbyServiceError(
+        'LOBBY_FULL',
+        409,
+        'This lobby is full.',
+      )
+    }
+
     const joinedAt = this.clock()
     const { player, session } = createPlayer(
       storedLobby.lobby.lobbyCode,
@@ -134,6 +166,7 @@ export class LobbyService {
       lobby: toLobbyView({
         lobby: storedLobby.lobby,
         players: [...storedLobby.players, player],
+        rounds: storedLobby.rounds,
       }),
       session,
     }
@@ -145,21 +178,13 @@ export class LobbyService {
     sessionToken: string | undefined,
   ): Promise<LobbyView> {
     const storedLobby = await this.findLobby(rawCode)
-    const requester = authenticatePlayer(storedLobby.players, sessionToken)
+    this.requireHost(storedLobby, sessionToken)
 
-    if (!requester) {
+    if (storedLobby.lobby.status !== 'waiting') {
       throw new LobbyServiceError(
-        'SESSION_UNAUTHORIZED',
-        401,
-        'A valid lobby session is required.',
-      )
-    }
-
-    if (requester.role !== 'host') {
-      throw new LobbyServiceError(
-        'HOST_ONLY',
-        403,
-        'Only the host can remove players.',
+        'LOBBY_ALREADY_STARTED',
+        409,
+        'Players cannot be removed after the game starts.',
       )
     }
 
@@ -190,7 +215,324 @@ export class LobbyService {
       players: storedLobby.players.filter(
         (candidate) => candidate.playerId !== player.playerId,
       ),
+      rounds: storedLobby.rounds,
     })
+  }
+
+  async startGame(
+    rawCode: string,
+    sessionToken: string | undefined,
+  ): Promise<LobbyView> {
+    const storedLobby = await this.findLobby(rawCode)
+    this.requireHost(storedLobby, sessionToken)
+
+    if (storedLobby.lobby.status !== 'waiting') {
+      throw new LobbyServiceError(
+        'LOBBY_ALREADY_STARTED',
+        409,
+        'This game has already started.',
+      )
+    }
+
+    if (storedLobby.players.length < 2) {
+      throw new LobbyServiceError(
+        'NOT_ENOUGH_PLAYERS',
+        409,
+        'At least two players are needed to start.',
+      )
+    }
+
+    const lobby: LobbyRecord = {
+      ...storedLobby.lobby,
+      status: 'active',
+      currentRound: 1,
+      startedAt: this.clock().toISOString(),
+    }
+    await this.repository.startGame(lobby)
+
+    return toLobbyView({ ...storedLobby, lobby })
+  }
+
+  async updateHand(
+    rawCode: string,
+    hand: HandSelection & { ready: boolean },
+    sessionToken: string | undefined,
+  ): Promise<LobbyView> {
+    const storedLobby = await this.findLobby(rawCode)
+    const requester = this.requirePlayer(storedLobby, sessionToken)
+
+    if (storedLobby.lobby.status !== 'active') {
+      throw new LobbyServiceError(
+        'GAME_NOT_ACTIVE',
+        409,
+        'Cards can only be changed during an active game.',
+      )
+    }
+
+    if (
+      hand.ready &&
+      !hand.busted &&
+      hand.numberCards.length === 0 &&
+      hand.modifiers.length === 0
+    ) {
+      throw new LobbyServiceError(
+        'EMPTY_HAND',
+        400,
+        'Select at least one card before marking your hand ready.',
+      )
+    }
+
+    const player: PlayerRecord = {
+      ...requester,
+      handRoundNumber: storedLobby.lobby.currentRound,
+      handNumberCardsJson: JSON.stringify(hand.numberCards),
+      handModifiersJson: JSON.stringify(hand.modifiers),
+      handBusted: hand.busted,
+      handReady: hand.ready,
+      handUpdatedAt: this.clock().toISOString(),
+    }
+    await this.repository.updatePlayerHand(player)
+
+    return toLobbyView({
+      ...storedLobby,
+      players: storedLobby.players.map((candidate) =>
+        candidate.playerId === player.playerId ? player : candidate,
+      ),
+    })
+  }
+
+  async recordRound(
+    rawCode: string,
+    sessionToken: string | undefined,
+  ): Promise<LobbyView> {
+    const storedLobby = await this.findLobby(rawCode)
+    this.requireHost(storedLobby, sessionToken)
+
+    if (storedLobby.lobby.status === 'waiting') {
+      throw new LobbyServiceError(
+        'GAME_NOT_STARTED',
+        409,
+        'Start the game before recording a round.',
+      )
+    }
+
+    if (storedLobby.lobby.status === 'finished') {
+      throw new LobbyServiceError(
+        'GAME_FINISHED',
+        409,
+        'This game is already finished.',
+      )
+    }
+
+    const hands = new Map(
+      storedLobby.players.map((player) => [
+        player.playerId,
+        toCurrentHand(player, storedLobby.lobby.currentRound),
+      ]),
+    )
+
+    if ([...hands.values()].some((hand) => !hand.ready)) {
+      throw new LobbyServiceError(
+        'HANDS_NOT_READY',
+        409,
+        'Every player must mark their hand ready first.',
+      )
+    }
+
+    const scoredPlayers = storedLobby.players.map((player) => {
+      const hand = hands.get(player.playerId) ?? emptyHand()
+      return {
+        player: {
+          ...player,
+          score: player.score + hand.points,
+        },
+        hand,
+      }
+    })
+    const players = scoredPlayers.map(({ player }) => player)
+    const leadingScore = Math.max(...players.map((player) => player.score))
+    const leaders = players.filter((player) => player.score === leadingScore)
+    const isFinished = leadingScore >= TARGET_SCORE && leaders.length === 1
+    const completedAt = this.clock().toISOString()
+    const lobby: LobbyRecord = {
+      ...storedLobby.lobby,
+      status: isFinished ? 'finished' : 'active',
+      currentRound: isFinished
+        ? storedLobby.lobby.currentRound
+        : storedLobby.lobby.currentRound + 1,
+      finishedAt: isFinished ? completedAt : '',
+    }
+    const roundScores: GameRoundScore[] = scoredPlayers.map(
+      ({ player, hand }) => ({
+        playerId: player.playerId,
+        points: hand.points,
+        total: player.score,
+        hand: {
+          numberCards: hand.numberCards,
+          modifiers: hand.modifiers,
+          busted: hand.busted,
+        },
+      }),
+    )
+    const nextPlayers: PlayerRecord[] = scoredPlayers.map(({ player }) => ({
+      ...player,
+      handRoundNumber: lobby.currentRound,
+      handNumberCardsJson: '[]',
+      handModifiersJson: '[]',
+      handBusted: false,
+      handReady: false,
+      handUpdatedAt: '',
+    }))
+    const round: RoundRecord = {
+      id: `round:${String(storedLobby.lobby.currentRound).padStart(4, '0')}`,
+      lobbyCode: storedLobby.lobby.lobbyCode,
+      type: 'round',
+      roundNumber: storedLobby.lobby.currentRound,
+      completedAt,
+      scoresJson: JSON.stringify(roundScores),
+      expiresAt: storedLobby.lobby.expiresAt,
+    }
+
+    try {
+      await this.repository.recordRound(lobby, nextPlayers, round)
+    } catch (error) {
+      if (error instanceof GameStateConflictError) {
+        throw new LobbyServiceError(
+          'ROUND_ALREADY_RECORDED',
+          409,
+          'That round was already recorded. Refresh to continue.',
+        )
+      }
+
+      throw error
+    }
+
+    return toLobbyView({
+      lobby,
+      players: nextPlayers,
+      rounds: [...storedLobby.rounds, round],
+    })
+  }
+
+  async undoLastRound(
+    rawCode: string,
+    sessionToken: string | undefined,
+  ): Promise<LobbyView> {
+    const storedLobby = await this.findLobby(rawCode)
+    this.requireHost(storedLobby, sessionToken)
+    const round = storedLobby.rounds.at(-1)
+
+    if (!round) {
+      throw new LobbyServiceError(
+        'NO_ROUNDS_TO_UNDO',
+        409,
+        'There is no completed round to undo.',
+      )
+    }
+
+    const hasCurrentRoundChanges =
+      storedLobby.lobby.status === 'active' &&
+      storedLobby.lobby.currentRound > round.roundNumber &&
+      storedLobby.players.some(
+        (player) =>
+          toCurrentHand(player, storedLobby.lobby.currentRound).updatedAt !==
+          null,
+      )
+
+    if (hasCurrentRoundChanges) {
+      throw new LobbyServiceError(
+        'ROUND_IN_PROGRESS',
+        409,
+        'Undo is unavailable after the next round has begun.',
+      )
+    }
+
+    const scoresByPlayerId = new Map(
+      parseRoundScores(round).map((score) => [score.playerId, score]),
+    )
+    const restoredAt = this.clock().toISOString()
+    const players = storedLobby.players.map((player) => {
+      const roundScore = scoresByPlayerId.get(player.playerId)
+
+      if (!roundScore) {
+        throw new LobbyServiceError(
+          'ROUND_UNDO_CONFLICT',
+          409,
+          'The round could not be restored. Refresh and try again.',
+        )
+      }
+
+      return {
+        ...player,
+        score: roundScore.total - roundScore.points,
+        handRoundNumber: round.roundNumber,
+        handNumberCardsJson: JSON.stringify(roundScore.hand.numberCards),
+        handModifiersJson: JSON.stringify(roundScore.hand.modifiers),
+        handBusted: roundScore.hand.busted,
+        handReady: false,
+        handUpdatedAt: restoredAt,
+      }
+    })
+    const lobby: LobbyRecord = {
+      ...storedLobby.lobby,
+      status: 'active',
+      currentRound: round.roundNumber,
+      finishedAt: '',
+    }
+
+    try {
+      await this.repository.undoRound(lobby, players, round)
+    } catch (error) {
+      if (error instanceof GameStateConflictError) {
+        throw new LobbyServiceError(
+          'ROUND_UNDO_CONFLICT',
+          409,
+          'The round changed before it could be restored. Refresh and try again.',
+        )
+      }
+
+      throw error
+    }
+
+    return toLobbyView({
+      lobby,
+      players,
+      rounds: storedLobby.rounds.slice(0, -1),
+    })
+  }
+
+  private requirePlayer(
+    storedLobby: StoredLobby,
+    sessionToken: string | undefined,
+  ): PlayerRecord {
+    const requester = authenticatePlayer(storedLobby.players, sessionToken)
+
+    if (!requester) {
+      throw new LobbyServiceError(
+        'SESSION_UNAUTHORIZED',
+        401,
+        'A valid lobby session is required.',
+      )
+    }
+
+    return requester
+  }
+
+  private requireHost(
+    storedLobby: StoredLobby,
+    sessionToken: string | undefined,
+  ): PlayerRecord {
+    const requester = this.requirePlayer(storedLobby, sessionToken)
+
+    if (requester.role !== 'host') {
+      throw new LobbyServiceError(
+        'HOST_ONLY',
+        403,
+        'Only the host can do that.',
+      )
+    }
+
+    return requester
   }
 
   private async findLobby(rawCode: string): Promise<StoredLobby> {
@@ -239,6 +581,13 @@ function createPlayer(
     joinedAt: joinedAt.toISOString(),
     tokenHash: createHash('sha256').update(token).digest('base64url'),
     expiresAt,
+    score: 0,
+    handRoundNumber: 0,
+    handNumberCardsJson: '[]',
+    handModifiersJson: '[]',
+    handBusted: false,
+    handReady: false,
+    handUpdatedAt: '',
   }
 
   return {
@@ -269,6 +618,11 @@ function authenticatePlayer(
 }
 
 function toLobbyView(storedLobby: StoredLobby): LobbyView {
+  const leadingScore = Math.max(
+    0,
+    ...storedLobby.players.map((player) => player.score),
+  )
+
   return {
     code: storedLobby.lobby.lobbyCode,
     status: storedLobby.lobby.status,
@@ -280,7 +634,65 @@ function toLobbyView(storedLobby: StoredLobby): LobbyView {
         name: player.name,
         role: player.role,
         joinedAt: player.joinedAt,
+        score: player.score,
+        hand: toCurrentHand(player, storedLobby.lobby.currentRound),
       }))
       .sort((left, right) => left.joinedAt.localeCompare(right.joinedAt)),
+    game:
+      storedLobby.lobby.status === 'waiting'
+        ? null
+        : {
+            targetScore: TARGET_SCORE,
+            roundNumber: storedLobby.lobby.currentRound,
+            startedAt: storedLobby.lobby.startedAt,
+            finishedAt: storedLobby.lobby.finishedAt || null,
+            rounds: storedLobby.rounds.map((round) => ({
+              number: round.roundNumber,
+              completedAt: round.completedAt,
+              scores: parseRoundScores(round),
+            })),
+            winnerIds:
+              storedLobby.lobby.status === 'finished'
+                ? storedLobby.players
+                    .filter((player) => player.score === leadingScore)
+                    .map((player) => player.playerId)
+                : [],
+          },
+  }
+}
+
+function toCurrentHand(
+  player: PlayerRecord,
+  currentRound: number,
+): ReturnType<typeof emptyHand> {
+  if (player.handRoundNumber !== currentRound) {
+    return emptyHand()
+  }
+
+  const hand = {
+    numberCards: JSON.parse(player.handNumberCardsJson) as number[],
+    modifiers: JSON.parse(player.handModifiersJson) as ScoreModifier[],
+    busted: player.handBusted,
+  }
+  const score = calculateHandScore(hand)
+
+  return {
+    ...hand,
+    points: score.points,
+    hasFlip7: score.hasFlip7,
+    ready: player.handReady,
+    updatedAt: player.handUpdatedAt || null,
+  }
+}
+
+function emptyHand() {
+  return {
+    numberCards: [] as number[],
+    modifiers: [] as ScoreModifier[],
+    busted: false,
+    points: 0,
+    hasFlip7: false,
+    ready: false,
+    updatedAt: null as string | null,
   }
 }
