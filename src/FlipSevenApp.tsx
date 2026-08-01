@@ -7,6 +7,7 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Check,
   Clipboard,
   CloudOff,
@@ -62,11 +63,15 @@ import {
   undoLobbyRound,
   updateLobbyHand,
 } from './lib/api'
+import { PollRequestGuard } from './lib/poll-request-guard'
 import { getLobbySession, saveLobbySession } from './lib/session'
 import './flip-seven.css'
 
 type HomeMode = 'create' | 'join' | 'display'
 type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'unavailable'
+
+const RULES_PDF_URL =
+  'https://cdn.shopify.com/s/files/1/0611/3958/3198/files/25_FLIP_7_TB_RULES_C_Rev_9_2_25_ND.pdf?v=1756935535'
 
 function App() {
   return (
@@ -474,15 +479,18 @@ function DisplayPage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [connectionState, setConnectionState] =
     useState<ConnectionState>('connecting')
+  const pollRequestGuard = useRef(new PollRequestGuard())
 
   useEffect(() => {
     let isCurrent = true
 
     const refreshLobby = async () => {
+      const request = pollRequestGuard.current.begin()
+
       try {
         const nextLobby = await getLobby(code)
 
-        if (!isCurrent) {
+        if (!isCurrent || !pollRequestGuard.current.isCurrent(request)) {
           return
         }
 
@@ -490,7 +498,7 @@ function DisplayPage() {
         setError('')
         setConnectionState('live')
       } catch (requestError) {
-        if (isCurrent) {
+        if (isCurrent && pollRequestGuard.current.isCurrent(request)) {
           setError(toErrorMessage(requestError))
           setConnectionState(
             requestError instanceof ApiClientError &&
@@ -591,6 +599,7 @@ function DisplayPage() {
           <span>Flip Seven</span>
         </Link>
         <div className="display-header-actions">
+          <RulesLink />
           <span
             className={`status-chip game-status ${lobby.status} connection-${connectionState}`}
           >
@@ -811,15 +820,18 @@ function LobbyPage() {
   const [isStarting, setIsStarting] = useState(false)
   const [connectionState, setConnectionState] =
     useState<ConnectionState>('connecting')
+  const pollRequestGuard = useRef(new PollRequestGuard())
 
   useEffect(() => {
     let isCurrent = true
 
     const refreshLobby = async () => {
+      const request = pollRequestGuard.current.begin()
+
       try {
         const nextLobby = await getLobby(code)
 
-        if (!isCurrent) {
+        if (!isCurrent || !pollRequestGuard.current.isCurrent(request)) {
           return
         }
 
@@ -827,7 +839,7 @@ function LobbyPage() {
         setError('')
         setConnectionState('live')
       } catch (requestError) {
-        if (isCurrent) {
+        if (isCurrent && pollRequestGuard.current.isCurrent(request)) {
           setError(toErrorMessage(requestError))
           setConnectionState(
             requestError instanceof ApiClientError &&
@@ -851,6 +863,10 @@ function LobbyPage() {
   const inviteUrl = `${window.location.origin}/join/${code}`
   const session = getLobbySession(code)
   const isConnected = connectionState === 'live'
+  const applyLobbyMutation = (nextLobby: LobbyView) => {
+    pollRequestGuard.current.invalidate()
+    setLobby(nextLobby)
+  }
 
   const showCopied = () => {
     setCopied(true)
@@ -900,7 +916,7 @@ function LobbyPage() {
         playerId,
         session.token,
       )
-      setLobby(nextLobby)
+      applyLobbyMutation(nextLobby)
     } catch (requestError) {
       setActionError(toErrorMessage(requestError))
     } finally {
@@ -923,7 +939,7 @@ function LobbyPage() {
     setIsStarting(true)
 
     try {
-      setLobby(await startLobbyGame(code, session.token))
+      applyLobbyMutation(await startLobbyGame(code, session.token))
     } catch (requestError) {
       setActionError(toErrorMessage(requestError))
     } finally {
@@ -1010,7 +1026,7 @@ function LobbyPage() {
         connectionMessage={error}
         removingPlayerId={removingPlayerId}
         removeError={actionError}
-        onLobbyChange={setLobby}
+        onLobbyChange={applyLobbyMutation}
         onRemovePlayer={handleRemovePlayer}
       />
     )
@@ -1972,8 +1988,27 @@ function SiteHeader() {
         <span className="brand-card">7</span>
         <span>Flip Seven</span>
       </Link>
-      <span className="edition-label">Scorekeeper</span>
+      <div className="site-header-actions">
+        <span className="edition-label">Scorekeeper</span>
+        <RulesLink />
+      </div>
     </header>
+  )
+}
+
+function RulesLink() {
+  return (
+    <a
+      className="rules-link"
+      href={RULES_PDF_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Open Flip 7 rules PDF"
+      title="Flip 7 rules"
+    >
+      <BookOpen aria-hidden="true" />
+      <span>Rules</span>
+    </a>
   )
 }
 

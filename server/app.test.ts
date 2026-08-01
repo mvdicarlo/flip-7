@@ -28,6 +28,10 @@ describe('lobby API', () => {
 
     assert.equal(createResponse.body.lobby.code, 'ABCDE')
     assert.equal(createResponse.body.lobby.status, 'waiting')
+    assert.equal(
+      createResponse.body.lobby.expiresAt,
+      new Date(TEST_NOW.getTime() + 48 * 60 * 60 * 1_000).toISOString(),
+    )
     assert.deepEqual(
       createResponse.body.lobby.players.map(
         (player: { name: string; role: string }) => ({
@@ -563,7 +567,7 @@ describe('lobby API', () => {
     )
 
     await service.createLobby('Host')
-    now = new Date(TEST_NOW.getTime() + 11 * 60 * 60 * 1_000)
+    now = new Date(TEST_NOW.getTime() + 47 * 60 * 60 * 1_000)
     await service.joinLobby('KLMNP', 'Late player')
 
     const storedLobby = await repository.getLobby('KLMNP')

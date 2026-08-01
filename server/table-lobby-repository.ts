@@ -99,50 +99,100 @@ export class TableLobbyRepository implements LobbyRepository {
     }
   }
 
-  async addPlayer(player: PlayerRecord): Promise<void> {
+  async addPlayer(lobby: LobbyRecord, player: PlayerRecord): Promise<void> {
+    const transaction = new TableTransaction()
+    transaction.updateEntity(toTableEntity(lobby), 'Replace', {
+      etag: requireEtag(lobby),
+    })
+    transaction.createEntity(toTableEntity(player))
+
     try {
-      await this.client.createEntity(toTableEntity(player))
+      await this.client.submitTransaction(transaction.actions)
     } catch (error) {
       if (isStatus(error, 409)) {
         throw new PlayerNameConflictError()
+      }
+
+      if (isStatus(error, 404) || isStatus(error, 412)) {
+        throw new GameStateConflictError()
       }
 
       throw error
     }
   }
 
-  async removePlayer(player: PlayerRecord): Promise<void> {
+  async removePlayer(
+    lobby: LobbyRecord,
+    player: PlayerRecord,
+  ): Promise<void> {
+    const transaction = new TableTransaction()
+    transaction.updateEntity(toTableEntity(lobby), 'Replace', {
+      etag: requireEtag(lobby),
+    })
+    transaction.deleteEntity(player.lobbyCode, player.id)
+
     try {
-      await this.client.deleteEntity(player.lobbyCode, player.id)
+      await this.client.submitTransaction(transaction.actions)
     } catch (error) {
-      if (!isStatus(error, 404)) {
-        throw error
+      if (isStatus(error, 404) || isStatus(error, 409) || isStatus(error, 412)) {
+        throw new GameStateConflictError()
       }
+
+      throw error
     }
   }
 
   async deactivatePlayer(player: PlayerRecord): Promise<void> {
-    await this.client.updateEntity(toTableEntity(player), 'Replace')
+    try {
+      await this.client.updateEntity(toTableEntity(player), 'Replace', {
+        etag: requireEtag(player),
+      })
+    } catch (error) {
+      if (isStatus(error, 404) || isStatus(error, 412)) {
+        throw new GameStateConflictError()
+      }
+
+      throw error
+    }
   }
 
   async updatePlayerHand(player: PlayerRecord): Promise<void> {
-    await this.client.updateEntity(
-      {
-        partitionKey: player.lobbyCode,
-        rowKey: player.id,
-        handRoundNumber: player.handRoundNumber,
-        handNumberCardsJson: player.handNumberCardsJson,
-        handModifiersJson: player.handModifiersJson,
-        handBusted: player.handBusted,
-        handReady: player.handReady,
-        handUpdatedAt: player.handUpdatedAt,
-      },
-      'Merge',
-    )
+    try {
+      await this.client.updateEntity(
+        {
+          partitionKey: player.lobbyCode,
+          rowKey: player.id,
+          handRoundNumber: player.handRoundNumber,
+          handNumberCardsJson: player.handNumberCardsJson,
+          handModifiersJson: player.handModifiersJson,
+          handBusted: player.handBusted,
+          handReady: player.handReady,
+          handUpdatedAt: player.handUpdatedAt,
+        },
+        'Merge',
+        { etag: requireEtag(player) },
+      )
+    } catch (error) {
+      if (isStatus(error, 404) || isStatus(error, 412)) {
+        throw new GameStateConflictError()
+      }
+
+      throw error
+    }
   }
 
   async startGame(lobby: LobbyRecord): Promise<void> {
-    await this.client.updateEntity(toTableEntity(lobby), 'Replace')
+    try {
+      await this.client.updateEntity(toTableEntity(lobby), 'Replace', {
+        etag: requireEtag(lobby),
+      })
+    } catch (error) {
+      if (isStatus(error, 404) || isStatus(error, 412)) {
+        throw new GameStateConflictError()
+      }
+
+      throw error
+    }
   }
 
   async recordRound(
@@ -151,10 +201,14 @@ export class TableLobbyRepository implements LobbyRepository {
     round: RoundRecord,
   ): Promise<void> {
     const transaction = new TableTransaction()
-    transaction.updateEntity(toTableEntity(lobby), 'Replace')
+    transaction.updateEntity(toTableEntity(lobby), 'Replace', {
+      etag: requireEtag(lobby),
+    })
 
     for (const player of players) {
-      transaction.updateEntity(toTableEntity(player), 'Replace')
+      transaction.updateEntity(toTableEntity(player), 'Replace', {
+        etag: requireEtag(player),
+      })
     }
 
     transaction.createEntity(toTableEntity(round))
@@ -162,7 +216,7 @@ export class TableLobbyRepository implements LobbyRepository {
     try {
       await this.client.submitTransaction(transaction.actions)
     } catch (error) {
-      if (isStatus(error, 409)) {
+      if (isStatus(error, 404) || isStatus(error, 409) || isStatus(error, 412)) {
         throw new GameStateConflictError()
       }
 
@@ -176,10 +230,14 @@ export class TableLobbyRepository implements LobbyRepository {
     round: RoundRecord,
   ): Promise<void> {
     const transaction = new TableTransaction()
-    transaction.updateEntity(toTableEntity(lobby), 'Replace')
+    transaction.updateEntity(toTableEntity(lobby), 'Replace', {
+      etag: requireEtag(lobby),
+    })
 
     for (const player of players) {
-      transaction.updateEntity(toTableEntity(player), 'Replace')
+      transaction.updateEntity(toTableEntity(player), 'Replace', {
+        etag: requireEtag(player),
+      })
     }
 
     transaction.deleteEntity(round.lobbyCode, round.id)
@@ -187,7 +245,7 @@ export class TableLobbyRepository implements LobbyRepository {
     try {
       await this.client.submitTransaction(transaction.actions)
     } catch (error) {
-      if (isStatus(error, 404) || isStatus(error, 409)) {
+      if (isStatus(error, 404) || isStatus(error, 409) || isStatus(error, 412)) {
         throw new GameStateConflictError()
       }
 
@@ -195,23 +253,99 @@ export class TableLobbyRepository implements LobbyRepository {
     }
   }
 
+  async deleteExpiredLobbies(expiresBefore: Date): Promise<number> {
+    const expiresBeforeIso = expiresBefore.toISOString()
+    const expiredLobbies = this.client.listEntities<LobbyRecord>({
+      queryOptions: {
+        filter: odata`type eq ${'lobby'} and expiresAt le ${expiresBeforeIso}`,
+      },
+    })
+    let deletedCount = 0
+
+    for await (const lobby of expiredLobbies) {
+      if (Date.parse(lobby.expiresAt) > expiresBefore.getTime()) {
+        continue
+      }
+
+      await this.deleteLobbyPartition(lobby.lobbyCode)
+      deletedCount += 1
+    }
+
+    return deletedCount
+  }
+
   async close(): Promise<void> {
     return Promise.resolve()
+  }
+
+  private async deleteLobbyPartition(lobbyCode: string): Promise<void> {
+    const rowKeys: string[] = []
+    const entities = this.client.listEntities({
+      queryOptions: {
+        filter: odata`PartitionKey eq ${lobbyCode}`,
+      },
+    })
+
+    for await (const entity of entities) {
+      if (entity.rowKey) {
+        rowKeys.push(entity.rowKey)
+      }
+    }
+
+    rowKeys.sort(
+      (left, right) => Number(left === 'lobby') - Number(right === 'lobby'),
+    )
+
+    for (let index = 0; index < rowKeys.length; index += 100) {
+      const batch = rowKeys.slice(index, index + 100)
+      const transaction = new TableTransaction()
+
+      batch.forEach((rowKey) => transaction.deleteEntity(lobbyCode, rowKey))
+
+      try {
+        await this.client.submitTransaction(transaction.actions)
+      } catch (error) {
+        if (!isStatus(error, 404) && !isStatus(error, 409)) {
+          throw error
+        }
+
+        for (const rowKey of batch) {
+          try {
+            await this.client.deleteEntity(lobbyCode, rowKey)
+          } catch (deleteError) {
+            if (!isStatus(deleteError, 404)) {
+              throw deleteError
+            }
+          }
+        }
+      }
+    }
   }
 }
 
 function toTableEntity<T extends LobbyRecord | PlayerRecord | RoundRecord>(
   record: T,
-): TableEntity<T> {
+): TableEntity {
+  const properties = { ...record }
+  delete properties.etag
   return {
-    ...record,
+    ...properties,
     partitionKey: record.lobbyCode,
     rowKey: record.id,
   }
 }
 
+function requireEtag(record: { etag?: string }): string {
+  if (!record.etag) {
+    throw new GameStateConflictError()
+  }
+
+  return record.etag
+}
+
 function toLobbyRecord(entity: TableEntityResult<LobbyRecord>): LobbyRecord {
   return {
+    etag: entity.etag,
     id: 'lobby',
     lobbyCode: entity.lobbyCode,
     type: 'lobby',
@@ -226,6 +360,7 @@ function toLobbyRecord(entity: TableEntityResult<LobbyRecord>): LobbyRecord {
 
 function toPlayerRecord(entity: TableEntityResult<PlayerRecord>): PlayerRecord {
   return {
+    etag: entity.etag,
     id: entity.id,
     lobbyCode: entity.lobbyCode,
     type: 'player',
@@ -249,6 +384,7 @@ function toPlayerRecord(entity: TableEntityResult<PlayerRecord>): PlayerRecord {
 
 function toRoundRecord(entity: TableEntityResult<RoundRecord>): RoundRecord {
   return {
+    etag: entity.etag,
     id: entity.id,
     lobbyCode: entity.lobbyCode,
     type: 'round',

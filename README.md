@@ -12,7 +12,7 @@ An unofficial, mobile-first lobby and scorekeeping companion for the Flip 7 card
 6. The host starts the game, and each player records cards and modifiers from their phone.
 7. Lobby, game, and display views poll every second for player, hand, and score updates.
 
-Lobby records expire logically after 12 hours. Ambiguous characters such as `0`, `1`, `I`, and `O` are not used in lobby codes.
+Lobby records expire after 48 hours. The server removes expired lobby partitions at startup and checks again every 12 hours. Ambiguous characters such as `0`, `1`, `I`, and `O` are not used in lobby codes.
 
 ## Stack
 
@@ -71,7 +71,7 @@ Each lobby is one table partition:
 - Lobby metadata and the host are created in one atomic table transaction.
 - Players are ordered by `joinedAt` in the application after retrieval.
 
-Azure Table Storage does not provide per-entity TTL. The application rejects lobbies after their shared 12-hour expiration, but physical removal requires a scheduled cleanup process if stale-row storage becomes meaningful.
+Azure Table Storage does not provide per-entity TTL. The application rejects lobbies after their shared 48-hour expiration and physically removes each expired lobby partition at startup and every 12 hours.
 
 ## Azure App Service
 

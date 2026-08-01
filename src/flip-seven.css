@@ -25,6 +25,7 @@
 }
 
 .brand {
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -33,6 +34,39 @@
   font-size: 1.2rem;
   font-weight: 650;
   text-decoration: none;
+}
+
+.site-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.rules-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.rules-link:hover {
+  color: white;
+  background: var(--blue);
+}
+
+.rules-link svg {
+  width: 18px;
+  height: 18px;
 }
 
 .brand-card {
@@ -2070,6 +2104,15 @@
   .copy-button svg {
     width: 19px;
     height: 19px;
+  }
+
+  .rules-link {
+    width: 44px;
+    padding: 0;
+  }
+
+  .rules-link > span {
+    display: none;
   }
 
   .scoreboard-pane {

@@ -29,7 +29,7 @@ import {
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const CODE_LENGTH = 5
-const LOBBY_LIFETIME_SECONDS = 12 * 60 * 60
+const LOBBY_LIFETIME_SECONDS = 48 * 60 * 60
 const MAX_CODE_ATTEMPTS = 10
 const MAX_PLAYERS = 18
 const TARGET_SCORE = 200
@@ -149,13 +149,21 @@ export class LobbyService {
     )
 
     try {
-      await this.repository.addPlayer(player)
+      await this.repository.addPlayer(storedLobby.lobby, player)
     } catch (error) {
       if (error instanceof PlayerNameConflictError) {
         throw new LobbyServiceError(
           'PLAYER_NAME_TAKEN',
           409,
           'That name is already in this lobby.',
+        )
+      }
+
+      if (error instanceof GameStateConflictError) {
+        throw new LobbyServiceError(
+          'LOBBY_CHANGED',
+          409,
+          'The lobby changed while you joined. Try again.',
         )
       }
 
@@ -209,7 +217,19 @@ export class LobbyService {
     }
 
     if (storedLobby.lobby.status === 'waiting') {
-      await this.repository.removePlayer(player)
+      try {
+        await this.repository.removePlayer(storedLobby.lobby, player)
+      } catch (error) {
+        if (error instanceof GameStateConflictError) {
+          throw new LobbyServiceError(
+            'PLAYER_STATE_CHANGED',
+            409,
+            'The lobby changed before that player could be removed. Refresh and try again.',
+          )
+        }
+
+        throw error
+      }
 
       return toLobbyView({
         lobby: storedLobby.lobby,
@@ -229,7 +249,19 @@ export class LobbyService {
       handReady: false,
       handUpdatedAt: '',
     }
-    await this.repository.deactivatePlayer(deactivatedPlayer)
+    try {
+      await this.repository.deactivatePlayer(deactivatedPlayer)
+    } catch (error) {
+      if (error instanceof GameStateConflictError) {
+        throw new LobbyServiceError(
+          'PLAYER_STATE_CHANGED',
+          409,
+          'That player changed before they could be removed. Refresh and try again.',
+        )
+      }
+
+      throw error
+    }
 
     return toLobbyView({
       lobby: storedLobby.lobby,
@@ -271,7 +303,19 @@ export class LobbyService {
       currentRound: 1,
       startedAt: this.clock().toISOString(),
     }
-    await this.repository.startGame(lobby)
+    try {
+      await this.repository.startGame(lobby)
+    } catch (error) {
+      if (error instanceof GameStateConflictError) {
+        throw new LobbyServiceError(
+          'LOBBY_CHANGED',
+          409,
+          'The lobby changed before the game could start. Refresh and try again.',
+        )
+      }
+
+      throw error
+    }
 
     return toLobbyView({ ...storedLobby, lobby })
   }
@@ -314,7 +358,19 @@ export class LobbyService {
       handReady: hand.ready,
       handUpdatedAt: this.clock().toISOString(),
     }
-    await this.repository.updatePlayerHand(player)
+    try {
+      await this.repository.updatePlayerHand(player)
+    } catch (error) {
+      if (error instanceof GameStateConflictError) {
+        throw new LobbyServiceError(
+          'HAND_CHANGED',
+          409,
+          'Your hand changed on another request. Refresh and try again.',
+        )
+      }
+
+      throw error
+    }
 
     return toLobbyView({
       ...storedLobby,
@@ -431,9 +487,9 @@ export class LobbyService {
     } catch (error) {
       if (error instanceof GameStateConflictError) {
         throw new LobbyServiceError(
-          'ROUND_ALREADY_RECORDED',
+          'ROUND_STATE_CHANGED',
           409,
-          'That round was already recorded. Refresh to continue.',
+          'A hand or round changed before completion. Refresh and try again.',
         )
       }
 

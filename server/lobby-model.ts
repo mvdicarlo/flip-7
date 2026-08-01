@@ -5,6 +5,7 @@ import type {
 } from '../shared/contracts.js'
 
 export interface LobbyRecord {
+  etag?: string
   id: 'lobby'
   lobbyCode: string
   type: 'lobby'
@@ -17,6 +18,7 @@ export interface LobbyRecord {
 }
 
 export interface PlayerRecord {
+  etag?: string
   id: string
   lobbyCode: string
   type: 'player'
@@ -38,6 +40,7 @@ export interface PlayerRecord {
 }
 
 export interface RoundRecord {
+  etag?: string
   id: string
   lobbyCode: string
   type: 'round'
@@ -56,8 +59,8 @@ export interface StoredLobby {
 export interface LobbyRepository {
   createLobby(lobby: LobbyRecord, host: PlayerRecord): Promise<void>
   getLobby(code: string): Promise<StoredLobby | null>
-  addPlayer(player: PlayerRecord): Promise<void>
-  removePlayer(player: PlayerRecord): Promise<void>
+  addPlayer(lobby: LobbyRecord, player: PlayerRecord): Promise<void>
+  removePlayer(lobby: LobbyRecord, player: PlayerRecord): Promise<void>
   deactivatePlayer(player: PlayerRecord): Promise<void>
   updatePlayerHand(player: PlayerRecord): Promise<void>
   startGame(lobby: LobbyRecord): Promise<void>
@@ -71,6 +74,7 @@ export interface LobbyRepository {
     players: PlayerRecord[],
     round: RoundRecord,
   ): Promise<void>
+  deleteExpiredLobbies(expiresBefore: Date): Promise<number>
   close(): Promise<void>
 }
 

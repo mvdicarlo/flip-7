@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { createApp } from './app.js'
 import { loadConfig } from './config.js'
+import { startExpiredLobbyCleanup } from './expired-lobby-cleanup.js'
 import { createLobbyRepository } from './lobby-repository-factory.js'
 import { LobbyService } from './lobby-service.js'
 
@@ -14,6 +15,7 @@ try {
 
 const config = loadConfig()
 const repository = await createLobbyRepository(config)
+const expiredLobbyCleanup = startExpiredLobbyCleanup(repository)
 const lobbyService = new LobbyService(repository)
 const app = createApp(lobbyService, {
   staticDirectory: resolve(process.cwd(), 'dist'),
@@ -24,6 +26,7 @@ const server = app.listen(config.port, '0.0.0.0', () => {
 })
 
 process.on('SIGTERM', () => {
+  expiredLobbyCleanup.stop()
   server.close(() => {
     void repository.close().finally(() => process.exit(0))
   })
