@@ -379,6 +379,93 @@
   font-size: 1.75rem;
 }
 
+.rejoin-check {
+  min-height: 190px;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.rejoin-prompt {
+  text-align: left;
+}
+
+.rejoin-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rejoin-identity .player-token {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  font-size: 1.15rem;
+}
+
+.rejoin-identity > div {
+  min-width: 0;
+}
+
+.rejoin-identity h1 {
+  overflow-wrap: anywhere;
+}
+
+.rejoin-description {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.rejoin-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.rejoin-actions .primary-button,
+.rejoin-actions .secondary-button {
+  width: 100%;
+}
+
+.rejoin-actions .primary-button > span {
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.rejoin-actions .secondary-button {
+  justify-content: center;
+  background: white;
+}
+
+.rejoin-instead-button {
+  min-height: 44px;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 6px 4px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.rejoin-instead-button:hover {
+  color: var(--blue);
+}
+
+.rejoin-instead-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
 .join-code {
   margin: 12px 20px 0;
   padding: 12px 10px;
@@ -1928,12 +2015,10 @@
     font-size: 3.7rem;
   }
 
-  .code-banner {
-    align-items: flex-end;
-  }
-
   .copy-button {
     width: 44px;
+    justify-content: center;
+    gap: 0;
     padding: 0;
     overflow: hidden;
     font-size: 0;

@@ -39,6 +39,7 @@ import {
 } from 'react-router-dom'
 import type {
   HandSelection,
+  LobbyPlayer,
   LobbyView,
   PlayerRoundHand,
   PlayerSession,
@@ -293,12 +294,61 @@ function HomePage() {
 }
 
 function JoinPage() {
-  const navigate = useNavigate()
   const { code: routeCode = '' } = useParams()
   const code = normalizeCodeInput(routeCode)
+
+  return <JoinPageContent key={code} code={code} />
+}
+
+function JoinPageContent({ code }: { code: string }) {
+  const navigate = useNavigate()
+  const savedPlayerId = getLobbySession(code)?.playerId
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [existingPlayer, setExistingPlayer] = useState<
+    LobbyPlayer | null | undefined
+  >(() => (savedPlayerId && code.length === 5 ? undefined : null))
+  const [showJoinForm, setShowJoinForm] = useState(
+    () => !savedPlayerId || code.length !== 5,
+  )
+
+  useEffect(() => {
+    if (!savedPlayerId || code.length !== 5) {
+      return
+    }
+
+    let isCurrent = true
+
+    const findExistingPlayer = async () => {
+      try {
+        const lobby = await getLobby(code)
+
+        if (!isCurrent) {
+          return
+        }
+
+        const player =
+          lobby.players.find(
+            (lobbyPlayer) => lobbyPlayer.id === savedPlayerId,
+          ) ?? null
+        setExistingPlayer(player)
+        setShowJoinForm(!player)
+      } catch (requestError) {
+        if (isCurrent) {
+          setExistingPlayer(null)
+          setShowJoinForm(true)
+          setError(toErrorMessage(requestError))
+        }
+      }
+    }
+
+    void findExistingPlayer()
+
+    return () => {
+      isCurrent = false
+    }
+  }, [code, savedPlayerId])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -316,6 +366,12 @@ function JoinPage() {
     }
   }
 
+  const showDifferentPlayerForm = () => {
+    setError('')
+    setName('')
+    setShowJoinForm(true)
+  }
+
   return (
     <div className="app-shell join-shell">
       <SiteHeader />
@@ -329,26 +385,80 @@ function JoinPage() {
           <div className="join-code" aria-label={`Lobby code ${code}`}>
             {code || '-----'}
           </div>
-          <form className="lobby-form" onSubmit={handleSubmit}>
-            <h1 id="join-title">Pick your table name</h1>
-            <Field
-              id="player-name"
-              label="Your name"
-              value={name}
-              onChange={setName}
-              autoComplete="nickname"
-              placeholder="Enter a display name"
-              maxLength={24}
-              autoFocus
-            />
-            <FormError message={error} />
-            <SubmitButton
-              label="Take a seat"
-              busyLabel="Joining lobby"
-              isSubmitting={isSubmitting}
-              disabled={code.length !== 5 || !name.trim()}
-            />
-          </form>
+          {existingPlayer === undefined ? (
+            <div className="lobby-form rejoin-check" aria-live="polite">
+              <LoaderCircle className="loading-icon" aria-hidden="true" />
+              <h1 id="join-title">Checking your seat</h1>
+            </div>
+          ) : existingPlayer && !showJoinForm ? (
+            <div className="lobby-form rejoin-prompt">
+              <div className="rejoin-identity">
+                <span className="player-token token-0" aria-hidden="true">
+                  {existingPlayer.name.charAt(0).toUpperCase()}
+                </span>
+                <div>
+                  <p className="eyebrow">Welcome back</p>
+                  <h1 id="join-title">Rejoin as {existingPlayer.name}?</h1>
+                </div>
+              </div>
+              <p className="rejoin-description">
+                Your seat is still saved on this device.
+              </p>
+              <div className="rejoin-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => navigate(`/lobby/${code}`)}
+                >
+                  <span>Rejoin as {existingPlayer.name}</span>
+                  <ArrowRight aria-hidden="true" />
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={showDifferentPlayerForm}
+                >
+                  <Users aria-hidden="true" />
+                  <span>Join as someone else</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form className="lobby-form" onSubmit={handleSubmit}>
+              <h1 id="join-title">
+                {existingPlayer
+                  ? 'Join as someone else'
+                  : 'Pick your table name'}
+              </h1>
+              <Field
+                id="player-name"
+                label="Your name"
+                value={name}
+                onChange={setName}
+                autoComplete="nickname"
+                placeholder="Enter a display name"
+                maxLength={24}
+                autoFocus
+              />
+              <FormError message={error} />
+              <SubmitButton
+                label="Take a seat"
+                busyLabel="Joining lobby"
+                isSubmitting={isSubmitting}
+                disabled={code.length !== 5 || !name.trim()}
+              />
+              {existingPlayer && (
+                <button
+                  className="rejoin-instead-button"
+                  type="button"
+                  onClick={() => setShowJoinForm(false)}
+                >
+                  <RotateCcw aria-hidden="true" />
+                  Rejoin as {existingPlayer.name} instead
+                </button>
+              )}
+            </form>
+          )}
         </section>
       </main>
       <SiteFooter />

@@ -7,7 +7,7 @@ An unofficial, mobile-first lobby and scorekeeping companion for the Flip 7 card
 1. A host enters a display name and creates a lobby.
 2. The server creates a five-character lobby code and adds the host as the first player.
 3. The waiting room shows the code, a join QR code, share controls, and the player list.
-4. Players join from the home page or `/join/:code` with a unique display name.
+4. Players join from the home page or `/join/:code` with a unique display name. A returning device can resume its saved seat or join as someone else.
 5. A computer or projector can open the read-only `/display/:code` view without joining as a player.
 6. The host starts the game, and each player records cards and modifiers from their phone.
 7. Lobby, game, and display views poll every second for player, hand, and score updates.
