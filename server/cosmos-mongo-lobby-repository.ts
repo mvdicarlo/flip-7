@@ -49,6 +49,10 @@ export class CosmosMongoLobbyRepository implements LobbyRepository {
           name: 'lobby_expiration',
           expireAfterSeconds: 0,
         },
+        {
+          key: { lobbyCode: 1, type: 1, joinedAt: 1 },
+          name: 'lobby_player_join_order',
+        },
       ])
 
       return new CosmosMongoLobbyRepository(client, collection)
