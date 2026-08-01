@@ -121,6 +121,10 @@ export class TableLobbyRepository implements LobbyRepository {
     }
   }
 
+  async deactivatePlayer(player: PlayerRecord): Promise<void> {
+    await this.client.updateEntity(toTableEntity(player), 'Replace')
+  }
+
   async updatePlayerHand(player: PlayerRecord): Promise<void> {
     await this.client.updateEntity(
       {
@@ -232,6 +236,7 @@ function toPlayerRecord(entity: TableEntityResult<PlayerRecord>): PlayerRecord {
     joinedAt: entity.joinedAt,
     tokenHash: entity.tokenHash,
     expiresAt: entity.expiresAt,
+    active: entity.active ?? true,
     score: entity.score ?? 0,
     handRoundNumber: entity.handRoundNumber ?? 0,
     handNumberCardsJson: entity.handNumberCardsJson ?? '[]',

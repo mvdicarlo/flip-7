@@ -145,6 +145,118 @@ describe('lobby API', () => {
     )
   })
 
+  it('lets the host remove a player during a game and continue rounds', async () => {
+    const app = makeApp('JKLMN')
+    const createResponse = await request(app)
+      .post('/api/lobbies')
+      .send({ hostName: 'Host' })
+      .expect(201)
+    const firstJoinResponse = await request(app)
+      .post('/api/lobbies/JKLMN/players')
+      .send({ name: 'Taylor' })
+      .expect(201)
+    const secondJoinResponse = await request(app)
+      .post('/api/lobbies/JKLMN/players')
+      .send({ name: 'Casey' })
+      .expect(201)
+    const host = createResponse.body.session
+    const firstPlayer = firstJoinResponse.body.session
+    const departingPlayer = secondJoinResponse.body.session
+
+    await request(app)
+      .post('/api/lobbies/JKLMN/game')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    for (const [token, numberCard] of [
+      [host.token, 1],
+      [firstPlayer.token, 2],
+      [departingPlayer.token, 3],
+    ] as const) {
+      await request(app)
+        .put('/api/lobbies/JKLMN/game/hand')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          numberCards: [numberCard],
+          modifiers: [],
+          busted: false,
+          ready: true,
+        })
+        .expect(200)
+    }
+
+    await request(app)
+      .post('/api/lobbies/JKLMN/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    for (const [token, numberCard] of [
+      [host.token, 4],
+      [firstPlayer.token, 5],
+    ] as const) {
+      await request(app)
+        .put('/api/lobbies/JKLMN/game/hand')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          numberCards: [numberCard],
+          modifiers: [],
+          busted: false,
+          ready: true,
+        })
+        .expect(200)
+    }
+
+    const blockedRoundResponse = await request(app)
+      .post('/api/lobbies/JKLMN/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(409)
+    assert.equal(blockedRoundResponse.body.error.code, 'HANDS_NOT_READY')
+
+    const removeResponse = await request(app)
+      .delete(
+        `/api/lobbies/JKLMN/players/${departingPlayer.playerId}`,
+      )
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.deepEqual(
+      removeResponse.body.lobby.players.map(
+        (lobbyPlayer: { name: string }) => lobbyPlayer.name,
+      ),
+      ['Host', 'Taylor'],
+    )
+    assert.deepEqual(
+      removeResponse.body.lobby.game.rounds[0].scores.map(
+        (score: { playerName: string }) => score.playerName,
+      ),
+      ['Host', 'Taylor', 'Casey'],
+    )
+
+    await request(app)
+      .put('/api/lobbies/JKLMN/game/hand')
+      .set('Authorization', `Bearer ${departingPlayer.token}`)
+      .send({
+        numberCards: [6],
+        modifiers: [],
+        busted: false,
+        ready: true,
+      })
+      .expect(401)
+
+    const continuedRoundResponse = await request(app)
+      .post('/api/lobbies/JKLMN/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+
+    assert.equal(continuedRoundResponse.body.lobby.game.roundNumber, 3)
+    assert.deepEqual(
+      continuedRoundResponse.body.lobby.game.rounds[1].scores.map(
+        (score: { playerName: string }) => score.playerName,
+      ),
+      ['Host', 'Taylor'],
+    )
+  })
+
   it('starts a game and totals rounds until a player reaches 200', async () => {
     const app = makeApp('MNPQR')
     const createResponse = await request(app)

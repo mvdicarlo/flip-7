@@ -27,6 +27,7 @@ export interface PlayerRecord {
   joinedAt: string
   tokenHash: string
   expiresAt: string
+  active: boolean
   score: number
   handRoundNumber: number
   handNumberCardsJson: string
@@ -57,6 +58,7 @@ export interface LobbyRepository {
   getLobby(code: string): Promise<StoredLobby | null>
   addPlayer(player: PlayerRecord): Promise<void>
   removePlayer(player: PlayerRecord): Promise<void>
+  deactivatePlayer(player: PlayerRecord): Promise<void>
   updatePlayerHand(player: PlayerRecord): Promise<void>
   startGame(lobby: LobbyRecord): Promise<void>
   recordRound(

@@ -791,7 +791,8 @@ function DisplayPage() {
                 <div>
                   {latestRound.scores.map((score) => (
                     <span key={score.playerId}>
-                      {playersById.get(score.playerId)?.name}{' '}
+                      {score.playerName ??
+                        playersById.get(score.playerId)?.name}{' '}
                       <b>+{score.points}</b>
                     </span>
                   ))}
@@ -889,11 +890,16 @@ function LobbyPage() {
   }
 
   const handleRemovePlayer = async (playerId: string, playerName: string) => {
+    const confirmationMessage =
+      lobby?.status === 'active'
+        ? `Remove ${playerName} from this game? Their current hand will be discarded, but completed rounds will stay in history.`
+        : `Remove ${playerName} from this lobby?`
+
     if (
       session?.role !== 'host' ||
       !isConnected ||
       removingPlayerId ||
-      !window.confirm(`Remove ${playerName} from this lobby?`)
+      !window.confirm(confirmationMessage)
     ) {
       return
     }
@@ -984,11 +990,19 @@ function LobbyPage() {
         <SiteHeader />
         <main className="state-page">
           <p className="eyebrow">Seat released</p>
-          <h1>You were removed from this lobby.</h1>
+          <h1>
+            You were removed from this{' '}
+            {lobby.status === 'waiting' ? 'lobby' : 'game'}.
+          </h1>
           <div className="state-actions">
-            <Link className="primary-button compact-button" to={`/join/${code}`}>
-              Join again
-            </Link>
+            {lobby.status === 'waiting' && (
+              <Link
+                className="primary-button compact-button"
+                to={`/join/${code}`}
+              >
+                Join again
+              </Link>
+            )}
             <Link className="secondary-button compact-button" to="/">
               <House aria-hidden="true" />
               Home
@@ -1007,7 +1021,10 @@ function LobbyPage() {
         session={session}
         connectionState={connectionState}
         connectionMessage={error}
+        removingPlayerId={removingPlayerId}
+        removeError={actionError}
         onLobbyChange={setLobby}
+        onRemovePlayer={handleRemovePlayer}
       />
     )
   }
@@ -1163,7 +1180,10 @@ interface GamePageProps {
   session: PlayerSession | null
   connectionState: ConnectionState
   connectionMessage: string
+  removingPlayerId: string | null
+  removeError: string
   onLobbyChange: (lobby: LobbyView) => void
+  onRemovePlayer: (playerId: string, playerName: string) => Promise<void>
 }
 
 function GamePage({
@@ -1171,7 +1191,10 @@ function GamePage({
   session,
   connectionState,
   connectionMessage,
+  removingPlayerId,
+  removeError,
   onLobbyChange,
+  onRemovePlayer,
 }: GamePageProps) {
   const game = lobby.game
   const currentPlayer = lobby.players.find(
@@ -1450,15 +1473,43 @@ function GamePage({
                       />
                     </span>
                   </div>
-                  <span className="score-total">
-                    <strong>{liveTotal}</strong>
-                    <small>
-                      {lobby.status === 'active' ? 'Projected' : 'Total'}
-                    </small>
-                  </span>
+                  <div className="score-actions">
+                    <span className="score-total">
+                      <strong>{liveTotal}</strong>
+                      <small>
+                        {lobby.status === 'active' ? 'Projected' : 'Total'}
+                      </small>
+                    </span>
+                    {lobby.status === 'active' &&
+                      session?.role === 'host' &&
+                      player.role !== 'host' && (
+                        <button
+                          className="remove-player-button"
+                          type="button"
+                          aria-label={`Remove ${player.name} from game`}
+                          title={`Remove ${player.name} from game`}
+                          disabled={
+                            !isConnected || removingPlayerId !== null
+                          }
+                          onClick={() =>
+                            void onRemovePlayer(player.id, player.name)
+                          }
+                        >
+                          {removingPlayerId === player.id ? (
+                            <LoaderCircle
+                              className="button-spinner"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <UserMinus aria-hidden="true" />
+                          )}
+                        </button>
+                      )}
+                  </div>
                 </li>
               )})}
             </ol>
+            <FormError message={removeError} />
           </section>
 
           {lobby.status === 'active' && currentPlayer && draftHand ? (
@@ -1562,7 +1613,10 @@ function GamePage({
                     {round.scores.map((score) => (
                       <span className="history-score" key={score.playerId}>
                         <span>
-                          <b>{playersById.get(score.playerId)?.name}</b>
+                          <b>
+                            {score.playerName ??
+                              playersById.get(score.playerId)?.name}
+                          </b>
                           <HandChips hand={score.hand} />
                         </span>
                         <small>

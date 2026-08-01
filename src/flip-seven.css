@@ -738,9 +738,9 @@
 }
 
 .remove-player-button {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -1072,6 +1072,23 @@
   display: grid;
   justify-items: end;
   line-height: 1;
+}
+
+.score-actions {
+  width: 66px;
+  flex: 0 0 66px;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.score-actions .score-total {
+  width: auto;
+  flex: none;
+}
+
+.scoreboard-pane > .form-error {
+  margin-top: 12px;
 }
 
 .score-total strong {
@@ -2027,6 +2044,12 @@
   .copy-button svg {
     width: 19px;
     height: 19px;
+  }
+
+  .standing-name {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .site-footer span:last-child {

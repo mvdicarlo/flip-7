@@ -64,6 +64,16 @@ export class InMemoryLobbyRepository implements LobbyRepository {
     this.players.get(player.lobbyCode)?.delete(player.id)
   }
 
+  async deactivatePlayer(player: PlayerRecord): Promise<void> {
+    const lobbyPlayers = this.players.get(player.lobbyCode)
+
+    if (!lobbyPlayers?.has(player.id)) {
+      throw new Error('Player does not exist')
+    }
+
+    lobbyPlayers.set(player.id, { ...player })
+  }
+
   async updatePlayerHand(player: PlayerRecord): Promise<void> {
     const storedPlayer = this.players.get(player.lobbyCode)?.get(player.id)
 

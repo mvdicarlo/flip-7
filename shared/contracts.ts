@@ -25,6 +25,7 @@ export interface PlayerRoundHand extends HandSelection {
 
 export interface GameRoundScore {
   playerId: string
+  playerName?: string
   points: number
   total: number
   hand: HandSelection

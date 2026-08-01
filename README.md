@@ -93,7 +93,7 @@ The server initializes the table before listening, binds to `0.0.0.0`, and honor
 | `POST` | `/api/lobbies` | Create a lobby with `{ "hostName": "Morgan" }`. |
 | `GET` | `/api/lobbies/:code` | Read the public lobby and game state. |
 | `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
-| `DELETE` | `/api/lobbies/:code/players/:playerId` | Remove a joined player with the host session token as a bearer credential. |
+| `DELETE` | `/api/lobbies/:code/players/:playerId` | Remove a non-host player with the host session token. During a game, the current hand is discarded and completed-round history is preserved. |
 | `POST` | `/api/lobbies/:code/game` | Start the game with the host session token. |
 | `PUT` | `/api/lobbies/:code/game/hand` | Save the authenticated player's number cards, modifiers, bust, and ready state. |
 | `POST` | `/api/lobbies/:code/game/rounds` | Complete all ready hands with the host session token. |

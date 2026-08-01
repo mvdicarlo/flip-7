@@ -131,7 +131,7 @@ export class LobbyService {
       )
     }
 
-    if (storedLobby.players.length >= MAX_PLAYERS) {
+    if (getActivePlayers(storedLobby.players).length >= MAX_PLAYERS) {
       throw new LobbyServiceError(
         'LOBBY_FULL',
         409,
@@ -180,15 +180,15 @@ export class LobbyService {
     const storedLobby = await this.findLobby(rawCode)
     this.requireHost(storedLobby, sessionToken)
 
-    if (storedLobby.lobby.status !== 'waiting') {
+    if (storedLobby.lobby.status === 'finished') {
       throw new LobbyServiceError(
-        'LOBBY_ALREADY_STARTED',
+        'GAME_FINISHED',
         409,
-        'Players cannot be removed after the game starts.',
+        'Players cannot be removed after the game finishes.',
       )
     }
 
-    const player = storedLobby.players.find(
+    const player = getActivePlayers(storedLobby.players).find(
       (candidate) => candidate.playerId === playerId,
     )
 
@@ -208,12 +208,35 @@ export class LobbyService {
       )
     }
 
-    await this.repository.removePlayer(player)
+    if (storedLobby.lobby.status === 'waiting') {
+      await this.repository.removePlayer(player)
+
+      return toLobbyView({
+        lobby: storedLobby.lobby,
+        players: storedLobby.players.filter(
+          (candidate) => candidate.playerId !== player.playerId,
+        ),
+        rounds: storedLobby.rounds,
+      })
+    }
+
+    const deactivatedPlayer: PlayerRecord = {
+      ...player,
+      active: false,
+      handNumberCardsJson: '[]',
+      handModifiersJson: '[]',
+      handBusted: false,
+      handReady: false,
+      handUpdatedAt: '',
+    }
+    await this.repository.deactivatePlayer(deactivatedPlayer)
 
     return toLobbyView({
       lobby: storedLobby.lobby,
-      players: storedLobby.players.filter(
-        (candidate) => candidate.playerId !== player.playerId,
+      players: storedLobby.players.map((candidate) =>
+        candidate.playerId === player.playerId
+          ? deactivatedPlayer
+          : candidate,
       ),
       rounds: storedLobby.rounds,
     })
@@ -234,7 +257,7 @@ export class LobbyService {
       )
     }
 
-    if (storedLobby.players.length < 2) {
+    if (getActivePlayers(storedLobby.players).length < 2) {
       throw new LobbyServiceError(
         'NOT_ENOUGH_PLAYERS',
         409,
@@ -324,8 +347,9 @@ export class LobbyService {
       )
     }
 
+    const currentPlayers = getActivePlayers(storedLobby.players)
     const hands = new Map(
-      storedLobby.players.map((player) => [
+      currentPlayers.map((player) => [
         player.playerId,
         toCurrentHand(player, storedLobby.lobby.currentRound),
       ]),
@@ -339,7 +363,7 @@ export class LobbyService {
       )
     }
 
-    const scoredPlayers = storedLobby.players.map((player) => {
+    const scoredPlayers = currentPlayers.map((player) => {
       const hand = hands.get(player.playerId) ?? emptyHand()
       return {
         player: {
@@ -365,6 +389,7 @@ export class LobbyService {
     const roundScores: GameRoundScore[] = scoredPlayers.map(
       ({ player, hand }) => ({
         playerId: player.playerId,
+        playerName: player.name,
         points: hand.points,
         total: player.score,
         hand: {
@@ -374,15 +399,23 @@ export class LobbyService {
         },
       }),
     )
-    const nextPlayers: PlayerRecord[] = scoredPlayers.map(({ player }) => ({
-      ...player,
-      handRoundNumber: lobby.currentRound,
-      handNumberCardsJson: '[]',
-      handModifiersJson: '[]',
-      handBusted: false,
-      handReady: false,
-      handUpdatedAt: '',
-    }))
+    const nextActivePlayers = new Map(
+      scoredPlayers.map(({ player }) => [
+        player.playerId,
+        {
+          ...player,
+          handRoundNumber: lobby.currentRound,
+          handNumberCardsJson: '[]',
+          handModifiersJson: '[]',
+          handBusted: false,
+          handReady: false,
+          handUpdatedAt: '',
+        },
+      ]),
+    )
+    const nextPlayers: PlayerRecord[] = storedLobby.players.map(
+      (player) => nextActivePlayers.get(player.playerId) ?? player,
+    )
     const round: RoundRecord = {
       id: `round:${String(storedLobby.lobby.currentRound).padStart(4, '0')}`,
       lobbyCode: storedLobby.lobby.lobbyCode,
@@ -433,7 +466,7 @@ export class LobbyService {
     const hasCurrentRoundChanges =
       storedLobby.lobby.status === 'active' &&
       storedLobby.lobby.currentRound > round.roundNumber &&
-      storedLobby.players.some(
+      getActivePlayers(storedLobby.players).some(
         (player) =>
           toCurrentHand(player, storedLobby.lobby.currentRound).updatedAt !==
           null,
@@ -455,6 +488,10 @@ export class LobbyService {
       const roundScore = scoresByPlayerId.get(player.playerId)
 
       if (!roundScore) {
+        if (!player.active) {
+          return player
+        }
+
         throw new LobbyServiceError(
           'ROUND_UNDO_CONFLICT',
           409,
@@ -505,7 +542,10 @@ export class LobbyService {
     storedLobby: StoredLobby,
     sessionToken: string | undefined,
   ): PlayerRecord {
-    const requester = authenticatePlayer(storedLobby.players, sessionToken)
+    const requester = authenticatePlayer(
+      getActivePlayers(storedLobby.players),
+      sessionToken,
+    )
 
     if (!requester) {
       throw new LobbyServiceError(
@@ -581,6 +621,7 @@ function createPlayer(
     joinedAt: joinedAt.toISOString(),
     tokenHash: createHash('sha256').update(token).digest('base64url'),
     expiresAt,
+    active: true,
     score: 0,
     handRoundNumber: 0,
     handNumberCardsJson: '[]',
@@ -618,9 +659,13 @@ function authenticatePlayer(
 }
 
 function toLobbyView(storedLobby: StoredLobby): LobbyView {
+  const currentPlayers = getActivePlayers(storedLobby.players)
+  const playerNames = new Map(
+    storedLobby.players.map((player) => [player.playerId, player.name]),
+  )
   const leadingScore = Math.max(
     0,
-    ...storedLobby.players.map((player) => player.score),
+    ...currentPlayers.map((player) => player.score),
   )
 
   return {
@@ -628,7 +673,7 @@ function toLobbyView(storedLobby: StoredLobby): LobbyView {
     status: storedLobby.lobby.status,
     createdAt: storedLobby.lobby.createdAt,
     expiresAt: storedLobby.lobby.expiresAt,
-    players: storedLobby.players
+    players: currentPlayers
       .map((player) => ({
         id: player.playerId,
         name: player.name,
@@ -649,16 +694,26 @@ function toLobbyView(storedLobby: StoredLobby): LobbyView {
             rounds: storedLobby.rounds.map((round) => ({
               number: round.roundNumber,
               completedAt: round.completedAt,
-              scores: parseRoundScores(round),
+              scores: parseRoundScores(round).map((score) => ({
+                ...score,
+                playerName:
+                  score.playerName ??
+                  playerNames.get(score.playerId) ??
+                  'Former player',
+              })),
             })),
             winnerIds:
               storedLobby.lobby.status === 'finished'
-                ? storedLobby.players
+                ? currentPlayers
                     .filter((player) => player.score === leadingScore)
                     .map((player) => player.playerId)
                 : [],
           },
   }
+}
+
+function getActivePlayers(players: PlayerRecord[]): PlayerRecord[] {
+  return players.filter((player) => player.active)
 }
 
 function toCurrentHand(
