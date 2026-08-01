@@ -93,7 +93,7 @@ describe('lobby API', () => {
     assert.equal(missingResponse.body.error.code, 'LOBBY_NOT_FOUND')
   })
 
-  it('expires late-joining player records with the lobby', async () => {
+  it('gives late-joining player records the lobby expiration', async () => {
     const repository = new InMemoryLobbyRepository()
     let now = new Date(TEST_NOW)
     const service = new LobbyService(
@@ -111,6 +111,6 @@ describe('lobby API', () => {
       (player) => player.name === 'Late player',
     )
 
-    assert.equal(latePlayer?.ttl, 60 * 60)
+    assert.equal(latePlayer?.expiresAt, storedLobby?.lobby.expiresAt)
   })
 })

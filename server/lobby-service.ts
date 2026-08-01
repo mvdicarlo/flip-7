@@ -63,14 +63,13 @@ export class LobbyService {
         status: 'waiting',
         createdAt: createdAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
-        ttl: LOBBY_LIFETIME_SECONDS,
       }
       const { player, session } = createPlayer(
         code,
         hostName,
         'host',
         createdAt,
-        LOBBY_LIFETIME_SECONDS,
+        expiresAt.toISOString(),
       )
 
       try {
@@ -108,12 +107,7 @@ export class LobbyService {
       playerName,
       'player',
       joinedAt,
-      Math.max(
-        1,
-        Math.ceil(
-          (Date.parse(storedLobby.lobby.expiresAt) - joinedAt.getTime()) / 1_000,
-        ),
-      ),
+      storedLobby.lobby.expiresAt,
     )
 
     try {
@@ -167,7 +161,7 @@ function createPlayer(
   name: string,
   role: PlayerRole,
   joinedAt: Date,
-  ttl: number,
+  expiresAt: string,
 ): { player: PlayerRecord; session: PlayerSession } {
   const normalizedName = name.trim().replace(/\s+/g, ' ').toLowerCase()
   const token = randomBytes(32).toString('base64url')
@@ -184,7 +178,7 @@ function createPlayer(
     role,
     joinedAt: joinedAt.toISOString(),
     tokenHash: createHash('sha256').update(token).digest('base64url'),
-    ttl,
+    expiresAt,
   }
 
   return {

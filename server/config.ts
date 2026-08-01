@@ -1,17 +1,15 @@
 export type LobbyStore = 'memory' | 'cosmos'
 
-export interface CosmosSettings {
-  endpoint: string
-  key?: string
+export interface CosmosMongoSettings {
+  connectionString: string
   databaseId: string
-  containerId: string
-  autoCreate: boolean
+  collectionId: string
 }
 
 export interface ServerConfig {
   port: number
   store: LobbyStore
-  cosmos?: CosmosSettings
+  cosmos?: CosmosMongoSettings
 }
 
 export function loadConfig(
@@ -28,11 +26,9 @@ export function loadConfig(
     port,
     store,
     cosmos: {
-      endpoint: required(environment, 'COSMOS_ENDPOINT'),
-      key: environment.COSMOS_KEY?.trim() || undefined,
-      databaseId: required(environment, 'COSMOS_DATABASE_ID'),
-      containerId: required(environment, 'COSMOS_CONTAINER_ID'),
-      autoCreate: environment.COSMOS_AUTO_CREATE === 'true',
+      connectionString: cosmosConnectionString(environment),
+      databaseId: environment.COSMOS_DATABASE_ID?.trim() || 'flip-seven',
+      collectionId: environment.COSMOS_COLLECTION_ID?.trim() || 'lobbies',
     },
   }
 }
@@ -59,14 +55,16 @@ function getPort(value: string | undefined): number {
   return port
 }
 
-function required(
-  environment: NodeJS.ProcessEnv,
-  name: string,
-): string {
-  const value = environment[name]?.trim()
+function cosmosConnectionString(environment: NodeJS.ProcessEnv): string {
+  const value =
+    environment.AZURE_COSMOS_CONNECTIONSTRING?.trim() ||
+    environment.AZURE_COSMOS_CONNECTION_STRING?.trim() ||
+    environment.CUSTOMCONNSTR_AZURE_COSMOS_CONNECTIONSTRING?.trim()
 
   if (!value) {
-    throw new Error(`${name} is required when LOBBY_STORE is "cosmos"`)
+    throw new Error(
+      'AZURE_COSMOS_CONNECTIONSTRING is required when LOBBY_STORE is "cosmos"',
+    )
   }
 
   return value

@@ -1,5 +1,5 @@
 import type { ServerConfig } from './config.js'
-import { CosmosLobbyRepository } from './cosmos-lobby-repository.js'
+import { CosmosMongoLobbyRepository } from './cosmos-mongo-lobby-repository.js'
 import { InMemoryLobbyRepository } from './in-memory-lobby-repository.js'
 import type { LobbyRepository } from './lobby-model.js'
 
@@ -14,5 +14,5 @@ export async function createLobbyRepository(
     throw new Error('Cosmos DB settings are missing')
   }
 
-  return CosmosLobbyRepository.connect(config.cosmos)
+  return CosmosMongoLobbyRepository.connect(config.cosmos)
 }

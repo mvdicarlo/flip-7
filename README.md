@@ -36,7 +36,7 @@ export default defineConfig([
   - Node.js 24 and TypeScript
   - React 19 and Vite
   - Express 5
-  - Azure Cosmos DB in production
+  - Azure Cosmos DB for MongoDB in production
   - In-memory storage for local development
 
   The production Express process serves both `/api/*` and the built React application, so one Linux App Service is sufficient.
@@ -69,19 +69,22 @@ export default defineConfig([
   | `NODE_ENV` | Azure | Set to `production`; this makes Cosmos DB the default store. |
   | `LOBBY_STORE` | No | `memory` or `cosmos`. Defaults to memory locally and Cosmos in production. |
   | `PORT` | No | Express port. Azure's supplied value is used automatically. |
-  | `COSMOS_ENDPOINT` | Cosmos | Cosmos account endpoint. |
-  | `COSMOS_KEY` | No | Account key. Omit it to use the App Service managed identity. |
-  | `COSMOS_DATABASE_ID` | Cosmos | Database containing lobby data. |
-  | `COSMOS_CONTAINER_ID` | Cosmos | Container containing lobby and player documents. |
-  | `COSMOS_AUTO_CREATE` | No | Set to `true` only when the credential may create the database/container. |
+  | `AZURE_COSMOS_CONNECTIONSTRING` | Cosmos | MongoDB API connection string supplied by Azure. |
+  | `COSMOS_DATABASE_ID` | No | Database name. Defaults to `flip-seven`. |
+  | `COSMOS_COLLECTION_ID` | No | Collection name. Defaults to `lobbies`. |
+
+  Set `AZURE_COSMOS_CONNECTIONSTRING` under App Service **App settings**. If it is stored under **Connection strings** as type `Custom`, App Service exposes it as `CUSTOMCONNSTR_AZURE_COSMOS_CONNECTIONSTRING`, which is also supported.
 
   ## Cosmos DB
 
-  The container partition key must be `/lobbyCode`. Each lobby and each player is a separate document in the same partition. Player document IDs are derived from normalized names, which makes name uniqueness safe under concurrent joins.
+  This application uses Cosmos DB's MongoDB API through the official `mongodb` driver. The database and collection default to `flip-seven` and `lobbies` and can be overridden independently from the connection string.
 
-  Enable container TTL with a default of `-1`. Each document supplies its own 12-hour `ttl` value. `COSMOS_AUTO_CREATE=true` creates a compatible database and container automatically; the default is `false` so a managed identity only needs data-plane access to an existing container.
+  At startup, the repository ensures two indexes:
 
-  For keyless access, enable the App Service system-assigned managed identity and grant it the Cosmos DB Built-in Data Contributor role at the appropriate Cosmos scope. Leave `COSMOS_KEY` unset.
+  - A unique compound index on `lobbyCode` and `id` protects lobby-code and normalized player-name uniqueness under concurrent writes.
+  - A TTL index on `expiresAtDate` removes lobby and player documents at their shared 12-hour expiration.
+
+  Each lobby and player is stored as a separate document. The supplied MongoDB credential must be able to read and write the collection and create these indexes.
 
   ## Azure App Service
 
@@ -90,7 +93,7 @@ export default defineConfig([
   1. Run `npm ci` and `npm run build` in the deployment pipeline.
   2. Deploy the repository with `dist`, `dist-server`, production dependencies, and package metadata.
   3. Use `npm start` as the startup command.
-  4. Add the production and Cosmos settings above to App Service Configuration.
+  4. Add `AZURE_COSMOS_CONNECTIONSTRING` and any database/collection overrides to App Service Configuration.
   5. Optionally configure `/api/health` as the health check path.
 
   The server binds to `0.0.0.0` and honors Azure's `PORT` setting.

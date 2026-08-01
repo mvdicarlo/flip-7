@@ -53,6 +53,10 @@ export class InMemoryLobbyRepository implements LobbyRepository {
     lobbyPlayers.set(player.id, { ...player })
   }
 
+  async close(): Promise<void> {
+    return Promise.resolve()
+  }
+
   private pruneExpired(code: string): void {
     const lobby = this.lobbies.get(code)
 

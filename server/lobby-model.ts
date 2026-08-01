@@ -7,7 +7,6 @@ export interface LobbyRecord {
   status: LobbyStatus
   createdAt: string
   expiresAt: string
-  ttl: number
 }
 
 export interface PlayerRecord {
@@ -20,7 +19,7 @@ export interface PlayerRecord {
   role: PlayerRole
   joinedAt: string
   tokenHash: string
-  ttl: number
+  expiresAt: string
 }
 
 export interface StoredLobby {
@@ -32,6 +31,7 @@ export interface LobbyRepository {
   createLobby(lobby: LobbyRecord, host: PlayerRecord): Promise<void>
   getLobby(code: string): Promise<StoredLobby | null>
   addPlayer(player: PlayerRecord): Promise<void>
+  close(): Promise<void>
 }
 
 export class LobbyCodeConflictError extends Error {
