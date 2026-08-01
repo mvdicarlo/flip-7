@@ -8,7 +8,9 @@ An unofficial, mobile-first lobby and scorekeeping companion for the Flip 7 card
 2. The server creates a five-character lobby code and adds the host as the first player.
 3. The waiting room shows the code, a join QR code, share controls, and the player list.
 4. Players join from the home page or `/join/:code` with a unique display name.
-5. The waiting room polls every three seconds for new players.
+5. A computer or projector can open the read-only `/display/:code` view without joining as a player.
+6. The host starts the game, and each player records cards and modifiers from their phone.
+7. Lobby, game, and display views poll every second for player, hand, and score updates.
 
 Lobby records expire logically after 12 hours. Ambiguous characters such as `0`, `1`, `I`, and `O` are not used in lobby codes.
 
@@ -32,6 +34,12 @@ npm run dev
 ```
 
 Open `http://localhost:5173`. Vite proxies API calls to Express on port `3000`. Local lobbies are held in memory and reset when the server restarts.
+
+## Room display
+
+Choose **Display** on the home screen and enter a lobby code, or open `/display/:code` directly. The display is public and read-only: it shows the join QR and player list while waiting, then automatically switches to large live standings, visible hands, readiness, round results, and the winner. Use its full-screen control for a TV or projector.
+
+Players can also open the display in a new tab from the waiting room or game heading. The display never reads or sends a player session token.
 
 Useful checks:
 
@@ -83,7 +91,7 @@ The server initializes the table before listening, binds to `0.0.0.0`, and honor
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/lobbies` | Create a lobby with `{ "hostName": "Morgan" }`. |
-| `GET` | `/api/lobbies/:code` | Read the public waiting-room state. |
+| `GET` | `/api/lobbies/:code` | Read the public lobby and game state. |
 | `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
 | `DELETE` | `/api/lobbies/:code/players/:playerId` | Remove a joined player with the host session token as a bearer credential. |
 | `POST` | `/api/lobbies/:code/game` | Start the game with the host session token. |

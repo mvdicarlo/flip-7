@@ -15,6 +15,9 @@ import {
   History,
   House,
   LoaderCircle,
+  Maximize2,
+  Minimize2,
+  MonitorUp,
   Play,
   RotateCcw,
   Share2,
@@ -62,7 +65,7 @@ import {
 import { getLobbySession, saveLobbySession } from './lib/session'
 import './flip-seven.css'
 
-type HomeMode = 'create' | 'join'
+type HomeMode = 'create' | 'join' | 'display'
 type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'unavailable'
 
 function App() {
@@ -72,6 +75,7 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/join/:code" element={<JoinPage />} />
         <Route path="/lobby/:code" element={<LobbyPage />} />
+        <Route path="/display/:code" element={<DisplayPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
@@ -84,6 +88,7 @@ function HomePage() {
   const [hostName, setHostName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [joinName, setJoinName] = useState('')
+  const [displayCode, setDisplayCode] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -122,6 +127,11 @@ function HomePage() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleDisplay = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    navigate(`/display/${displayCode}`)
   }
 
   return (
@@ -164,6 +174,15 @@ function HomePage() {
             >
               Join
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'display'}
+              className={mode === 'display' ? 'is-active' : ''}
+              onClick={() => selectMode('display')}
+            >
+              Display
+            </button>
           </div>
 
           {mode === 'create' ? (
@@ -193,7 +212,7 @@ function HomePage() {
                 disabled={!hostName.trim()}
               />
             </form>
-          ) : (
+          ) : mode === 'join' ? (
             <form className="lobby-form" onSubmit={handleJoin}>
               <div className="panel-heading">
                 <span className="panel-number panel-number-teal">02</span>
@@ -232,6 +251,38 @@ function HomePage() {
                 isSubmitting={isSubmitting}
                 disabled={joinCode.length !== 5 || !joinName.trim()}
               />
+            </form>
+          ) : (
+            <form className="lobby-form" onSubmit={handleDisplay}>
+              <div className="panel-heading">
+                <span className="panel-number panel-number-blue">03</span>
+                <div>
+                  <p className="eyebrow">Room display</p>
+                  <h2 id="action-title">Open a guest view</h2>
+                </div>
+              </div>
+              <Field
+                id="display-code"
+                label="Lobby code"
+                value={displayCode}
+                onChange={(value) =>
+                  setDisplayCode(normalizeCodeInput(value))
+                }
+                autoComplete="off"
+                placeholder="ABCDE"
+                maxLength={5}
+                inputMode="text"
+                code
+                autoFocus
+              />
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={displayCode.length !== 5}
+              >
+                <span>Open display</span>
+                <MonitorUp aria-hidden="true" />
+              </button>
             </form>
           )}
         </section>
@@ -301,6 +352,345 @@ function JoinPage() {
         </section>
       </main>
       <SiteFooter />
+    </div>
+  )
+}
+
+function DisplayPage() {
+  const { code: routeCode = '' } = useParams()
+  const code = normalizeCodeInput(routeCode)
+  const [lobby, setLobby] = useState<LobbyView | null>(null)
+  const [error, setError] = useState('')
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>('connecting')
+
+  useEffect(() => {
+    let isCurrent = true
+    let hasLoaded = false
+
+    const refreshLobby = async () => {
+      try {
+        const nextLobby = await getLobby(code)
+
+        if (!isCurrent) {
+          return
+        }
+
+        if (hasLoaded) {
+          startTransition(() => setLobby(nextLobby))
+        } else {
+          setLobby(nextLobby)
+          hasLoaded = true
+        }
+        setError('')
+        setConnectionState('live')
+      } catch (requestError) {
+        if (isCurrent) {
+          setError(toErrorMessage(requestError))
+          setConnectionState(
+            requestError instanceof ApiClientError &&
+              requestError.code === 'LOBBY_NOT_FOUND'
+              ? 'unavailable'
+              : 'reconnecting',
+          )
+        }
+      }
+    }
+
+    void refreshLobby()
+    const interval = window.setInterval(() => void refreshLobby(), 1_000)
+
+    return () => {
+      isCurrent = false
+      window.clearInterval(interval)
+    }
+  }, [code, refreshVersion])
+
+  useEffect(() => {
+    const updateFullscreenState = () =>
+      setIsFullscreen(Boolean(document.fullscreenElement))
+
+    document.addEventListener('fullscreenchange', updateFullscreenState)
+    return () =>
+      document.removeEventListener('fullscreenchange', updateFullscreenState)
+  }, [])
+
+  const toggleFullscreen = () => {
+    const request = document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.documentElement.requestFullscreen()
+
+    void request.catch(() => undefined)
+  }
+
+  if (!lobby && error) {
+    return (
+      <div className="app-shell display-shell">
+        <SiteHeader />
+        <main className="state-page">
+          <p className="eyebrow">Display unavailable</p>
+          <h1>{error}</h1>
+          <div className="state-actions">
+            <button
+              className="primary-button compact-button"
+              type="button"
+              onClick={() => setRefreshVersion((version) => version + 1)}
+            >
+              Try again
+            </button>
+            <Link className="secondary-button compact-button" to="/">
+              <House aria-hidden="true" />
+              Home
+            </Link>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  if (!lobby) {
+    return (
+      <div className="app-shell display-shell">
+        <main className="display-loading" aria-live="polite">
+          <LoaderCircle className="loading-icon" aria-hidden="true" />
+          <h1>Opening display</h1>
+          <p>Lobby {code}</p>
+        </main>
+      </div>
+    )
+  }
+
+  const game = lobby.game
+  const projectedScore = (player: LobbyView['players'][number]) =>
+    player.score + (lobby.status === 'active' ? player.hand.points : 0)
+  const standings = [...lobby.players].sort(
+    (left, right) =>
+      projectedScore(right) - projectedScore(left) ||
+      left.joinedAt.localeCompare(right.joinedAt),
+  )
+  const playersById = new Map(
+    lobby.players.map((player) => [player.id, player]),
+  )
+  const winnerNames = (game?.winnerIds ?? [])
+    .map((playerId) => playersById.get(playerId)?.name)
+    .filter((name): name is string => Boolean(name))
+  const readyCount = lobby.players.filter((player) => player.hand.ready).length
+  const latestRound = game?.rounds.at(-1)
+  const inviteUrl = `${window.location.origin}/join/${code}`
+
+  return (
+    <div className={`app-shell display-shell display-${lobby.status}`}>
+      <header className="display-header">
+        <Link className="brand" to="/" aria-label="Flip Seven home">
+          <span className="brand-card">7</span>
+          <span>Flip Seven</span>
+        </Link>
+        <div className="display-header-actions">
+          <span
+            className={`status-chip game-status ${lobby.status} connection-${connectionState}`}
+          >
+            <span aria-hidden="true" />
+            {connectionLabel(
+              connectionState,
+              lobby.status === 'waiting'
+                ? 'Lobby open'
+                : lobby.status === 'finished'
+                  ? 'Final'
+                  : 'Live',
+            )}
+          </span>
+          {document.fullscreenEnabled && (
+            <button
+              className="display-fullscreen-button"
+              type="button"
+              aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+              title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+              onClick={toggleFullscreen}
+            >
+              {isFullscreen ? (
+                <Minimize2 aria-hidden="true" />
+              ) : (
+                <Maximize2 aria-hidden="true" />
+              )}
+              <span>{isFullscreen ? 'Exit full screen' : 'Full screen'}</span>
+            </button>
+          )}
+        </div>
+      </header>
+
+      <main className="display-main">
+        <ConnectionBanner state={connectionState} message={error} />
+
+        {lobby.status === 'waiting' || !game ? (
+          <>
+            <section className="display-waiting-hero">
+              <div>
+                <p className="kicker">Lobby {lobby.code}</p>
+                <h1>Join the table</h1>
+                <strong className="display-code">{lobby.code}</strong>
+                <p>Scan with your phone or enter the code to join.</p>
+              </div>
+              <div className="display-qr-frame">
+                <QRCodeSVG
+                  value={inviteUrl}
+                  size={240}
+                  level="M"
+                  marginSize={2}
+                  bgColor="#ffffff"
+                  fgColor="#191a1f"
+                  title={`Join lobby ${lobby.code}`}
+                />
+              </div>
+            </section>
+
+            <section
+              className="display-waiting-players"
+              aria-labelledby="display-players-title"
+            >
+              <div className="display-section-heading">
+                <div>
+                  <p className="eyebrow">At the table</p>
+                  <h2 id="display-players-title">Players</h2>
+                </div>
+                <span>{lobby.players.length} joined</span>
+              </div>
+              <ul>
+                {lobby.players.map((player, index) => (
+                  <li key={player.id}>
+                    <span
+                      className={`player-token token-${index % 4}`}
+                      aria-hidden="true"
+                    >
+                      {player.name.charAt(0).toUpperCase()}
+                    </span>
+                    <strong>{player.name}</strong>
+                    {player.role === 'host' && (
+                      <span className="host-badge">
+                        <Crown aria-hidden="true" />
+                        Host
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </>
+        ) : (
+          <>
+            <section className="display-game-heading">
+              <div>
+                <p className="kicker">Game {lobby.code}</p>
+                <h1>
+                  {lobby.status === 'finished'
+                    ? 'Game complete'
+                    : `Round ${game.roundNumber}`}
+                </h1>
+              </div>
+              <div className="display-round-meta">
+                <Users aria-hidden="true" />
+                <span>
+                  {lobby.status === 'finished'
+                    ? `${lobby.players.length} players`
+                    : `${readyCount} of ${lobby.players.length} ready`}
+                </span>
+              </div>
+            </section>
+
+            {lobby.status === 'finished' && (
+              <section
+                className="display-winner-banner"
+                aria-labelledby="display-winner-title"
+              >
+                <Trophy aria-hidden="true" />
+                <div>
+                  <p className="eyebrow">
+                    {winnerNames.length === 1 ? 'Winner' : 'Winners'}
+                  </p>
+                  <h2 id="display-winner-title">
+                    {winnerNames.join(' & ')}
+                  </h2>
+                </div>
+                <strong>{standings[0]?.score ?? 0}</strong>
+              </section>
+            )}
+
+            <ol className="display-scoreboard" aria-label="Standings">
+              {standings.map((player, index) => {
+                const liveTotal = projectedScore(player)
+
+                return (
+                  <li
+                    className={`${player.hand.ready ? 'hand-ready' : ''} ${
+                      player.hand.busted ? 'hand-busted' : ''
+                    }`}
+                    key={player.id}
+                  >
+                    <span className="display-rank">{index + 1}</span>
+                    <div className="display-player-heading">
+                      <span
+                        className={`player-token token-${index % 4}`}
+                        aria-hidden="true"
+                      >
+                        {player.name.charAt(0).toUpperCase()}
+                      </span>
+                      <div>
+                        <h2>{player.name}</h2>
+                        {lobby.status === 'active' && (
+                          <span className="display-hand-state">
+                            {player.hand.busted
+                              ? 'Busted'
+                              : player.hand.ready
+                                ? 'Ready'
+                                : 'Choosing cards'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="display-player-score">
+                      <strong>{liveTotal}</strong>
+                      <span>
+                        {lobby.status === 'active' ? 'Projected' : 'Total'}
+                      </span>
+                    </div>
+                    {lobby.status === 'active' && (
+                      <>
+                        <HandChips hand={player.hand} />
+                        <div className="display-score-detail">
+                          <span>
+                            Banked <b>{player.score}</b>
+                          </span>
+                          <span>
+                            This round <b>+{player.hand.points}</b>
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+
+            {latestRound && (
+              <section className="display-last-round" aria-label="Last round">
+                <span>
+                  <History aria-hidden="true" />
+                  Round {latestRound.number}
+                </span>
+                <div>
+                  {latestRound.scores.map((score) => (
+                    <span key={score.playerId}>
+                      {playersById.get(score.playerId)?.name}{' '}
+                      <b>+{score.points}</b>
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </main>
     </div>
   )
 }
@@ -521,10 +911,23 @@ function LobbyPage() {
             <p className="kicker">Waiting room</p>
             <h1>{session?.role === 'host' ? 'Your lobby is open' : 'You are in'}</h1>
           </div>
-          <span className={`status-chip connection-${connectionState}`}>
-            <span aria-hidden="true" />
-            {connectionLabel(connectionState, 'Live')}
-          </span>
+          <div className="heading-actions">
+            <Link
+              className="display-launch-link"
+              to={`/display/${lobby.code}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open room display"
+              title="Open room display"
+            >
+              <MonitorUp aria-hidden="true" />
+              <span>Display</span>
+            </Link>
+            <span className={`status-chip connection-${connectionState}`}>
+              <span aria-hidden="true" />
+              {connectionLabel(connectionState, 'Live')}
+            </span>
+          </div>
         </div>
 
         <ConnectionBanner state={connectionState} message={error} />
@@ -823,15 +1226,28 @@ function GamePage({
                 : `Round ${game.roundNumber}`}
             </h1>
           </div>
-          <span
-            className={`status-chip game-status ${lobby.status} connection-${connectionState}`}
-          >
-            <span aria-hidden="true" />
-            {connectionLabel(
-              connectionState,
-              lobby.status === 'finished' ? 'Final' : 'In play',
-            )}
-          </span>
+          <div className="heading-actions">
+            <Link
+              className="display-launch-link"
+              to={`/display/${lobby.code}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open room display"
+              title="Open room display"
+            >
+              <MonitorUp aria-hidden="true" />
+              <span>Display</span>
+            </Link>
+            <span
+              className={`status-chip game-status ${lobby.status} connection-${connectionState}`}
+            >
+              <span aria-hidden="true" />
+              {connectionLabel(
+                connectionState,
+                lobby.status === 'finished' ? 'Final' : 'In play',
+              )}
+            </span>
+          </div>
         </div>
 
         <ConnectionBanner
