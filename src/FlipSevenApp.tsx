@@ -59,6 +59,7 @@ import {
   joinLobby,
   recordLobbyRound,
   removeLobbyPlayer,
+  restartLobbyGame,
   startLobbyGame,
   undoLobbyRound,
   updateLobbyHand,
@@ -1019,7 +1020,7 @@ function LobbyPage() {
   if (lobby.status !== 'waiting' && lobby.game) {
     return (
       <GamePage
-        key={`${lobby.status}:${lobby.game.roundNumber}`}
+        key={`${lobby.status}:${lobby.game.runId}:${lobby.game.roundNumber}`}
         lobby={lobby}
         session={session}
         connectionState={connectionState}
@@ -1214,6 +1215,8 @@ function GamePage({
   const [isCompletingRound, setIsCompletingRound] = useState(false)
   const [undoError, setUndoError] = useState('')
   const [isUndoingRound, setIsUndoingRound] = useState(false)
+  const [restartError, setRestartError] = useState('')
+  const [isRestartingGame, setIsRestartingGame] = useState(false)
   const handSaveQueue = useRef<Promise<void>>(Promise.resolve())
   const handSaveVersion = useRef(0)
 
@@ -1277,6 +1280,7 @@ function GamePage({
         const nextLobby = await updateLobbyHand(
           lobby.code,
           nextHand,
+          game.runId,
           session.token,
         )
         onLobbyChange(nextLobby)
@@ -1315,7 +1319,9 @@ function GamePage({
     setIsCompletingRound(true)
 
     try {
-      onLobbyChange(await recordLobbyRound(lobby.code, session.token))
+      onLobbyChange(
+        await recordLobbyRound(lobby.code, game.runId, session.token),
+      )
     } catch (requestError) {
       setRoundError(toErrorMessage(requestError))
     } finally {
@@ -1341,11 +1347,39 @@ function GamePage({
     setIsUndoingRound(true)
 
     try {
-      onLobbyChange(await undoLobbyRound(lobby.code, session.token))
+      onLobbyChange(
+        await undoLobbyRound(lobby.code, game.runId, session.token),
+      )
     } catch (requestError) {
       setUndoError(toErrorMessage(requestError))
     } finally {
       setIsUndoingRound(false)
+    }
+  }
+
+  const handleRestartGame = async () => {
+    if (
+      session?.role !== 'host' ||
+      !isConnected ||
+      isRestartingGame ||
+      !window.confirm(
+        'Restart this game? All scores, hands, and round history will be permanently cleared. Players will stay seated.',
+      )
+    ) {
+      return
+    }
+
+    setRestartError('')
+    setIsRestartingGame(true)
+
+    try {
+      onLobbyChange(
+        await restartLobbyGame(lobby.code, game.runId, session.token),
+      )
+    } catch (requestError) {
+      setRestartError(toErrorMessage(requestError))
+    } finally {
+      setIsRestartingGame(false)
     }
   }
 
@@ -1363,6 +1397,25 @@ function GamePage({
             </h1>
           </div>
           <div className="heading-actions">
+            {session?.role === 'host' && (
+              <button
+                className="restart-game-button"
+                type="button"
+                aria-label="Restart game"
+                title="Restart game"
+                disabled={!isConnected || isRestartingGame}
+                onClick={handleRestartGame}
+              >
+                {isRestartingGame ? (
+                  <LoaderCircle
+                    className="button-spinner"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <RotateCcw aria-hidden="true" />
+                )}
+              </button>
+            )}
             <Link
               className="display-launch-link"
               to={`/display/${lobby.code}`}
@@ -1390,6 +1443,11 @@ function GamePage({
           state={connectionState}
           message={connectionMessage}
         />
+        {restartError && (
+          <div className="restart-game-error">
+            <FormError message={restartError} />
+          </div>
+        )}
 
         {lobby.status === 'finished' && (
           <section className="winner-banner" aria-labelledby="winner-title">

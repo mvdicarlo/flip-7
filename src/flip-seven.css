@@ -833,6 +833,38 @@
   gap: 8px;
 }
 
+.restart-game-button {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--red-dark);
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: 5px;
+}
+
+.restart-game-button:hover:not(:disabled) {
+  color: white;
+  background: var(--red-dark);
+}
+
+.restart-game-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.restart-game-button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.restart-game-error {
+  margin: -8px 0 20px;
+}
+
 .display-launch-link {
   min-height: 44px;
   display: inline-flex;

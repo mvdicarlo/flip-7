@@ -168,10 +168,11 @@ describe('lobby API', () => {
     const firstPlayer = firstJoinResponse.body.session
     const departingPlayer = secondJoinResponse.body.session
 
-    await request(app)
+    const startResponse = await request(app)
       .post('/api/lobbies/JKLMN/game')
       .set('Authorization', `Bearer ${host.token}`)
       .expect(200)
+    const runId = startResponse.body.lobby.game.runId
 
     for (const [token, numberCard] of [
       [host.token, 1],
@@ -181,6 +182,7 @@ describe('lobby API', () => {
       await request(app)
         .put('/api/lobbies/JKLMN/game/hand')
         .set('Authorization', `Bearer ${token}`)
+        .set('X-Game-Run-Id', runId)
         .send({
           numberCards: [numberCard],
           modifiers: [],
@@ -193,6 +195,7 @@ describe('lobby API', () => {
     await request(app)
       .post('/api/lobbies/JKLMN/game/rounds')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(200)
 
     for (const [token, numberCard] of [
@@ -202,6 +205,7 @@ describe('lobby API', () => {
       await request(app)
         .put('/api/lobbies/JKLMN/game/hand')
         .set('Authorization', `Bearer ${token}`)
+        .set('X-Game-Run-Id', runId)
         .send({
           numberCards: [numberCard],
           modifiers: [],
@@ -214,6 +218,7 @@ describe('lobby API', () => {
     const blockedRoundResponse = await request(app)
       .post('/api/lobbies/JKLMN/game/rounds')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(409)
     assert.equal(blockedRoundResponse.body.error.code, 'HANDS_NOT_READY')
 
@@ -240,6 +245,7 @@ describe('lobby API', () => {
     await request(app)
       .put('/api/lobbies/JKLMN/game/hand')
       .set('Authorization', `Bearer ${departingPlayer.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [6],
         modifiers: [],
@@ -251,6 +257,7 @@ describe('lobby API', () => {
     const continuedRoundResponse = await request(app)
       .post('/api/lobbies/JKLMN/game/rounds')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(200)
 
     assert.equal(continuedRoundResponse.body.lobby.game.roundNumber, 3)
@@ -285,6 +292,7 @@ describe('lobby API', () => {
       .post('/api/lobbies/MNPQR/game')
       .set('Authorization', `Bearer ${host.token}`)
       .expect(200)
+    const runId = startResponse.body.lobby.game.runId
 
     assert.equal(startResponse.body.lobby.status, 'active')
     assert.equal(startResponse.body.lobby.game.roundNumber, 1)
@@ -303,6 +311,7 @@ describe('lobby API', () => {
 
     const unauthorizedHandResponse = await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12],
         modifiers: [],
@@ -318,6 +327,7 @@ describe('lobby API', () => {
     const duplicateCardResponse = await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12, 12],
         modifiers: [],
@@ -330,6 +340,7 @@ describe('lobby API', () => {
     const hostHandResponse = await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12, 11, 10, 9, 8, 7],
         modifiers: ['times-2', 'plus-6'],
@@ -347,12 +358,14 @@ describe('lobby API', () => {
     const incompleteRoundResponse = await request(app)
       .post('/api/lobbies/MNPQR/game/rounds')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(409)
     assert.equal(incompleteRoundResponse.body.error.code, 'HANDS_NOT_READY')
 
     const playerHandResponse = await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
       .set('Authorization', `Bearer ${player.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12, 11, 10, 9],
         modifiers: ['times-2', 'plus-6'],
@@ -384,12 +397,14 @@ describe('lobby API', () => {
     const playerRoundResponse = await request(app)
       .post('/api/lobbies/MNPQR/game/rounds')
       .set('Authorization', `Bearer ${player.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(403)
     assert.equal(playerRoundResponse.body.error.code, 'HOST_ONLY')
 
     const firstRoundResponse = await request(app)
       .post('/api/lobbies/MNPQR/game/rounds')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(200)
 
     assert.equal(firstRoundResponse.body.lobby.status, 'active')
@@ -409,6 +424,7 @@ describe('lobby API', () => {
     await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12, 11, 10],
         modifiers: ['times-2', 'plus-8'],
@@ -419,6 +435,7 @@ describe('lobby API', () => {
     await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
       .set('Authorization', `Bearer ${player.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12, 11, 10, 9, 8, 7],
         modifiers: ['times-2', 'plus-2'],
@@ -430,6 +447,7 @@ describe('lobby API', () => {
     const finalRoundResponse = await request(app)
       .post('/api/lobbies/MNPQR/game/rounds')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(200)
 
     assert.equal(finalRoundResponse.body.lobby.status, 'finished')
@@ -447,12 +465,14 @@ describe('lobby API', () => {
     const playerUndoResponse = await request(app)
       .delete('/api/lobbies/MNPQR/game/rounds/latest')
       .set('Authorization', `Bearer ${player.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(403)
     assert.equal(playerUndoResponse.body.error.code, 'HOST_ONLY')
 
     const undoResponse = await request(app)
       .delete('/api/lobbies/MNPQR/game/rounds/latest')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(200)
 
     assert.equal(undoResponse.body.lobby.status, 'active')
@@ -478,6 +498,7 @@ describe('lobby API', () => {
     await request(app)
       .put('/api/lobbies/MNPQR/game/hand')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .send({
         numberCards: [12],
         modifiers: [],
@@ -489,6 +510,7 @@ describe('lobby API', () => {
     const inProgressUndoResponse = await request(app)
       .delete('/api/lobbies/MNPQR/game/rounds/latest')
       .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', runId)
       .expect(409)
     assert.equal(
       inProgressUndoResponse.body.error.code,
@@ -505,7 +527,8 @@ describe('lobby API', () => {
     )
     const host = (await service.createLobby('Morgan')).session
     const player = (await service.joinLobby('NPQRS', 'Taylor')).session
-    await service.startGame('NPQRS', host.token)
+    const startedLobby = await service.startGame('NPQRS', host.token)
+    const runId = startedLobby.game?.runId ?? ''
 
     const score120 = {
       numberCards: [12, 11, 10, 9, 8, 7],
@@ -515,9 +538,9 @@ describe('lobby API', () => {
     }
 
     for (let round = 0; round < 2; round += 1) {
-      await service.updateHand('NPQRS', score120, host.token)
-      await service.updateHand('NPQRS', score120, player.token)
-      await service.recordRound('NPQRS', host.token)
+      await service.updateHand('NPQRS', score120, host.token, runId)
+      await service.updateHand('NPQRS', score120, player.token, runId)
+      await service.recordRound('NPQRS', host.token, runId)
     }
 
     const tiedLobby = await service.getLobby('NPQRS')
@@ -529,16 +552,180 @@ describe('lobby API', () => {
       'NPQRS',
       { numberCards: [1], modifiers: [], busted: false, ready: true },
       host.token,
+      runId,
     )
     await service.updateHand(
       'NPQRS',
       { numberCards: [0], modifiers: [], busted: false, ready: true },
       player.token,
+      runId,
     )
-    const finishedLobby = await service.recordRound('NPQRS', host.token)
+    const finishedLobby = await service.recordRound(
+      'NPQRS',
+      host.token,
+      runId,
+    )
 
     assert.equal(finishedLobby.status, 'finished')
     assert.deepEqual(finishedLobby.game?.winnerIds, [host.playerId])
+  })
+
+  it('lets the host restart a game with the same players', async () => {
+    const app = makeApp('RSTRT')
+    const createResponse = await request(app)
+      .post('/api/lobbies')
+      .send({ hostName: 'Morgan' })
+      .expect(201)
+    const joinResponse = await request(app)
+      .post('/api/lobbies/RSTRT/players')
+      .send({ name: 'Taylor' })
+      .expect(201)
+    const host = createResponse.body.session
+    const player = joinResponse.body.session
+
+    const waitingRestartResponse = await request(app)
+      .post('/api/lobbies/RSTRT/game/restart')
+      .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', 'not-started')
+      .expect(409)
+    assert.equal(waitingRestartResponse.body.error.code, 'GAME_NOT_STARTED')
+
+    const startResponse = await request(app)
+      .post('/api/lobbies/RSTRT/game')
+      .set('Authorization', `Bearer ${host.token}`)
+      .expect(200)
+    const firstRunId = startResponse.body.lobby.game.runId
+
+    for (const session of [host, player]) {
+      await request(app)
+        .put('/api/lobbies/RSTRT/game/hand')
+        .set('Authorization', `Bearer ${session.token}`)
+        .set('X-Game-Run-Id', firstRunId)
+        .send({
+          numberCards: [12],
+          modifiers: [],
+          busted: false,
+          ready: true,
+        })
+        .expect(200)
+    }
+    await request(app)
+      .post('/api/lobbies/RSTRT/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', firstRunId)
+      .expect(200)
+    await request(app)
+      .put('/api/lobbies/RSTRT/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', firstRunId)
+      .send({
+        numberCards: [7],
+        modifiers: ['plus-2'],
+        busted: false,
+        ready: false,
+      })
+      .expect(200)
+
+    const playerRestartResponse = await request(app)
+      .post('/api/lobbies/RSTRT/game/restart')
+      .set('Authorization', `Bearer ${player.token}`)
+      .set('X-Game-Run-Id', firstRunId)
+      .expect(403)
+    assert.equal(playerRestartResponse.body.error.code, 'HOST_ONLY')
+
+    const restartResponse = await request(app)
+      .post('/api/lobbies/RSTRT/game/restart')
+      .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', firstRunId)
+      .expect(200)
+    const restartedRunId = restartResponse.body.lobby.game.runId
+
+    assert.equal(restartResponse.body.lobby.status, 'active')
+    assert.equal(restartResponse.body.lobby.game.roundNumber, 1)
+    assert.equal(restartResponse.body.lobby.game.rounds.length, 0)
+    assert.notEqual(restartResponse.body.lobby.game.runId, firstRunId)
+    assert.deepEqual(
+      restartResponse.body.lobby.players.map(
+        (lobbyPlayer: {
+          name: string
+          score: number
+          hand: {
+            numberCards: number[]
+            modifiers: string[]
+            points: number
+            ready: boolean
+            updatedAt: string | null
+          }
+        }) => ({
+          name: lobbyPlayer.name,
+          score: lobbyPlayer.score,
+          hand: lobbyPlayer.hand,
+        }),
+      ),
+      [
+        {
+          name: 'Morgan',
+          score: 0,
+          hand: {
+            numberCards: [],
+            modifiers: [],
+            busted: false,
+            points: 0,
+            hasFlip7: false,
+            ready: false,
+            updatedAt: null,
+          },
+        },
+        {
+          name: 'Taylor',
+          score: 0,
+          hand: {
+            numberCards: [],
+            modifiers: [],
+            busted: false,
+            points: 0,
+            hasFlip7: false,
+            ready: false,
+            updatedAt: null,
+          },
+        },
+      ],
+    )
+
+    const staleRestartResponse = await request(app)
+      .post('/api/lobbies/RSTRT/game/restart')
+      .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', firstRunId)
+      .expect(409)
+    assert.equal(staleRestartResponse.body.error.code, 'GAME_RUN_CHANGED')
+
+    for (const session of [host, player]) {
+      await request(app)
+        .put('/api/lobbies/RSTRT/game/hand')
+        .set('Authorization', `Bearer ${session.token}`)
+        .set('X-Game-Run-Id', restartedRunId)
+        .send({
+          numberCards: [1],
+          modifiers: [],
+          busted: false,
+          ready: true,
+        })
+        .expect(200)
+    }
+    const newFirstRoundResponse = await request(app)
+      .post('/api/lobbies/RSTRT/game/rounds')
+      .set('Authorization', `Bearer ${host.token}`)
+      .set('X-Game-Run-Id', restartedRunId)
+      .expect(200)
+
+    assert.equal(newFirstRoundResponse.body.lobby.game.rounds.length, 1)
+    assert.equal(newFirstRoundResponse.body.lobby.game.rounds[0].number, 1)
+    assert.deepEqual(
+      newFirstRoundResponse.body.lobby.game.rounds[0].scores.map(
+        (score: { points: number }) => score.points,
+      ),
+      [1, 1],
+    )
   })
 
   it('returns useful errors for invalid and unknown lobbies', async () => {

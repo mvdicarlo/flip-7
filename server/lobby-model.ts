@@ -12,6 +12,7 @@ export interface LobbyRecord {
   status: LobbyStatus
   createdAt: string
   expiresAt: string
+  gameId: string
   currentRound: number
   startedAt: string
   finishedAt: string
@@ -44,6 +45,7 @@ export interface RoundRecord {
   id: string
   lobbyCode: string
   type: 'round'
+  gameId: string
   roundNumber: number
   completedAt: string
   scoresJson: string
@@ -64,6 +66,7 @@ export interface LobbyRepository {
   deactivatePlayer(player: PlayerRecord): Promise<void>
   updatePlayerHand(player: PlayerRecord): Promise<void>
   startGame(lobby: LobbyRecord): Promise<void>
+  restartGame(lobby: LobbyRecord, players: PlayerRecord[]): Promise<void>
   recordRound(
     lobby: LobbyRecord,
     players: PlayerRecord[],

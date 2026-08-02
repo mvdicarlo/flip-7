@@ -75,15 +75,31 @@ export async function startLobbyGame(
   return result.lobby
 }
 
+export async function restartLobbyGame(
+  code: string,
+  runId: string,
+  token: string,
+): Promise<LobbyView> {
+  const result = await apiRequest<LobbyEnvelope>(
+    `/api/lobbies/${encodeURIComponent(code)}/game/restart`,
+    {
+      method: 'POST',
+      headers: gameMutationHeaders(token, runId),
+    },
+  )
+  return result.lobby
+}
+
 export async function recordLobbyRound(
   code: string,
+  runId: string,
   token: string,
 ): Promise<LobbyView> {
   const result = await apiRequest<LobbyEnvelope>(
     `/api/lobbies/${encodeURIComponent(code)}/game/rounds`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: gameMutationHeaders(token, runId),
     },
   )
   return result.lobby
@@ -91,13 +107,14 @@ export async function recordLobbyRound(
 
 export async function undoLobbyRound(
   code: string,
+  runId: string,
   token: string,
 ): Promise<LobbyView> {
   const result = await apiRequest<LobbyEnvelope>(
     `/api/lobbies/${encodeURIComponent(code)}/game/rounds/latest`,
     {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: gameMutationHeaders(token, runId),
     },
   )
   return result.lobby
@@ -106,17 +123,25 @@ export async function undoLobbyRound(
 export async function updateLobbyHand(
   code: string,
   hand: HandSelection & { ready: boolean },
+  runId: string,
   token: string,
 ): Promise<LobbyView> {
   const result = await apiRequest<LobbyEnvelope>(
     `/api/lobbies/${encodeURIComponent(code)}/game/hand`,
     {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: gameMutationHeaders(token, runId),
       body: JSON.stringify(hand),
     },
   )
   return result.lobby
+}
+
+function gameMutationHeaders(token: string, runId: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    'X-Game-Run-Id': runId,
+  }
 }
 
 async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {

@@ -126,6 +126,28 @@ export class InMemoryLobbyRepository implements LobbyRepository {
     this.lobbies.set(lobby.lobbyCode, this.withNextEtag(lobby))
   }
 
+  async restartGame(
+    lobby: LobbyRecord,
+    players: PlayerRecord[],
+  ): Promise<void> {
+    const storedLobby = this.lobbies.get(lobby.lobbyCode)
+    const storedPlayers = this.players.get(lobby.lobbyCode)
+
+    if (!storedLobby || !storedPlayers) {
+      throw new GameStateConflictError()
+    }
+
+    this.requireMatchingEtag(storedLobby, lobby)
+    this.requireMatchingPlayers(storedPlayers, players)
+    this.lobbies.set(lobby.lobbyCode, this.withNextEtag(lobby))
+    this.players.set(
+      lobby.lobbyCode,
+      new Map(
+        players.map((player) => [player.id, this.withNextEtag(player)]),
+      ),
+    )
+  }
+
   async recordRound(
     lobby: LobbyRecord,
     players: PlayerRecord[],

@@ -78,24 +78,28 @@ describe('game state concurrency', () => {
     )
     const host = (await service.createLobby('Host')).session
     const player = (await service.joinLobby('ABCDE', 'Player')).session
-    await service.startGame('ABCDE', host.token)
+    const startedLobby = await service.startGame('ABCDE', host.token)
+    const runId = startedLobby.game?.runId ?? ''
     await service.updateHand(
       'ABCDE',
       { numberCards: [1], modifiers: [], busted: false, ready: true },
       host.token,
+      runId,
     )
     await service.updateHand(
       'ABCDE',
       { numberCards: [2], modifiers: [], busted: false, ready: true },
       player.token,
+      runId,
     )
 
-    const roundRequest = service.recordRound('ABCDE', host.token)
+    const roundRequest = service.recordRound('ABCDE', host.token, runId)
     await repository.roundStarted
     await service.updateHand(
       'ABCDE',
       { numberCards: [3], modifiers: [], busted: false, ready: false },
       player.token,
+      runId,
     )
     const rejection = assert.rejects(
       roundRequest,
@@ -114,6 +118,41 @@ describe('game state concurrency', () => {
     assert.equal(lobby.game?.rounds.length, 0)
     assert.deepEqual(currentPlayer?.hand.numberCards, [3])
     assert.equal(currentPlayer?.hand.ready, false)
+  })
+
+  it('rejects a hand update from the previous game run', async () => {
+    const service = new LobbyService(
+      new InMemoryLobbyRepository(),
+      () => new Date(TEST_NOW),
+      () => 'RSTRT',
+    )
+    const host = (await service.createLobby('Host')).session
+    await service.joinLobby('RSTRT', 'Player')
+    const startedLobby = await service.startGame('RSTRT', host.token)
+    const previousRunId = startedLobby.game?.runId ?? ''
+    const restartedLobby = await service.restartGame(
+      'RSTRT',
+      host.token,
+      previousRunId,
+    )
+
+    await assert.rejects(
+      service.updateHand(
+        'RSTRT',
+        { numberCards: [7], modifiers: [], busted: false, ready: true },
+        host.token,
+        previousRunId,
+      ),
+      (error: unknown) =>
+        error instanceof LobbyServiceError &&
+        error.code === 'GAME_RUN_CHANGED',
+    )
+
+    assert.notEqual(restartedLobby.game?.runId, previousRunId)
+    assert.deepEqual(
+      (await service.getLobby('RSTRT')).players[0]?.hand.numberCards,
+      [],
+    )
   })
 
   it('rejects a join that was read before the game started', async () => {

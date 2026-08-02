@@ -11,6 +11,7 @@ An unofficial, mobile-first lobby and scorekeeping companion for the Flip 7 card
 5. A computer or projector can open the read-only `/display/:code` view without joining as a player.
 6. The host starts the game, and each player records cards and modifiers from their phone.
 7. Lobby, game, and display views poll every second for player, hand, and score updates.
+8. The host can restart an active or completed game with the same seated players, clearing scores, hands, and round history.
 
 Lobby records expire after 48 hours. The server removes expired lobby partitions at startup and checks again every 12 hours. Ambiguous characters such as `0`, `1`, `I`, and `O` are not used in lobby codes.
 
@@ -70,6 +71,7 @@ Each lobby is one table partition:
 - Player row keys are deterministic hashes of normalized names, which enforces unique names within a lobby.
 - Lobby metadata and the host are created in one atomic table transaction.
 - Players are ordered by `joinedAt` in the application after retrieval.
+- Each start or restart gets a new game run ID. Earlier round rows remain isolated from the current game and are removed with the lobby partition after expiration.
 
 Azure Table Storage does not provide per-entity TTL. The application rejects lobbies after their shared 48-hour expiration and physically removes each expired lobby partition at startup and every 12 hours.
 
@@ -95,12 +97,14 @@ The server initializes the table before listening, binds to `0.0.0.0`, and honor
 | `POST` | `/api/lobbies/:code/players` | Join with `{ "name": "Taylor" }`. |
 | `DELETE` | `/api/lobbies/:code/players/:playerId` | Remove a non-host player with the host session token. During a game, the current hand is discarded and completed-round history is preserved. |
 | `POST` | `/api/lobbies/:code/game` | Start the game with the host session token. |
+| `POST` | `/api/lobbies/:code/game/restart` | Restart the game with the host session token, retaining active seats while clearing scores and history. |
 | `PUT` | `/api/lobbies/:code/game/hand` | Save the authenticated player's number cards, modifiers, bust, and ready state. |
 | `POST` | `/api/lobbies/:code/game/rounds` | Complete all ready hands with the host session token. |
 | `DELETE` | `/api/lobbies/:code/game/rounds/latest` | Undo the latest round before the next round begins. |
 | `GET` | `/api/health` | App Service health probe. |
 
 Create and join responses include a browser session token. Only token hashes are persisted.
+After a game starts, hand, round, undo, and restart requests also send `X-Game-Run-Id` with the current public `lobby.game.runId`. The server rejects requests from an earlier run after a restart.
 The server calculates each hand from its cards, commits completed rounds atomically, and finishes when a sole leading score reaches 200. Tied leaders continue playing.
 
 ## Real-time next step

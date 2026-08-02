@@ -38,6 +38,7 @@ export interface GameRound {
 }
 
 export interface LobbyGame {
+  runId: string
   targetScore: number
   roundNumber: number
   startedAt: string

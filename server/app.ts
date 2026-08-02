@@ -31,6 +31,11 @@ const lobbyCodeSchema = z
   )
 
 const playerIdSchema = z.string().uuid('Enter a valid player ID.')
+const gameRunIdSchema = z
+  .string()
+  .trim()
+  .min(1, 'A game run ID is required.')
+  .max(64, 'Enter a valid game run ID.')
 
 const handSchema = z.object({
   numberCards: z
@@ -106,6 +111,16 @@ export function createApp(
     response.json({ lobby })
   })
 
+  app.post('/api/lobbies/:code/game/restart', async (request, response) => {
+    const code = lobbyCodeSchema.parse(request.params.code)
+    const lobby = await lobbyService.restartGame(
+      code,
+      bearerToken(request.headers.authorization),
+      gameRunId(request),
+    )
+    response.json({ lobby })
+  })
+
   app.put('/api/lobbies/:code/game/hand', async (request, response) => {
     const code = lobbyCodeSchema.parse(request.params.code)
     const hand = handSchema.parse(request.body)
@@ -113,6 +128,7 @@ export function createApp(
       code,
       hand,
       bearerToken(request.headers.authorization),
+      gameRunId(request),
     )
     response.json({ lobby })
   })
@@ -122,6 +138,7 @@ export function createApp(
     const lobby = await lobbyService.recordRound(
       code,
       bearerToken(request.headers.authorization),
+      gameRunId(request),
     )
     response.json({ lobby })
   })
@@ -133,6 +150,7 @@ export function createApp(
       const lobby = await lobbyService.undoLastRound(
         code,
         bearerToken(request.headers.authorization),
+        gameRunId(request),
       )
       response.json({ lobby })
     },
@@ -194,4 +212,8 @@ function bearerToken(authorization: string | undefined): string | undefined {
   }
 
   return token
+}
+
+function gameRunId(request: express.Request): string {
+  return gameRunIdSchema.parse(request.get('X-Game-Run-Id'))
 }

@@ -195,6 +195,32 @@ export class TableLobbyRepository implements LobbyRepository {
     }
   }
 
+  async restartGame(
+    lobby: LobbyRecord,
+    players: PlayerRecord[],
+  ): Promise<void> {
+    const transaction = new TableTransaction()
+    transaction.updateEntity(toTableEntity(lobby), 'Replace', {
+      etag: requireEtag(lobby),
+    })
+
+    for (const player of players) {
+      transaction.updateEntity(toTableEntity(player), 'Replace', {
+        etag: requireEtag(player),
+      })
+    }
+
+    try {
+      await this.client.submitTransaction(transaction.actions)
+    } catch (error) {
+      if (isStatus(error, 404) || isStatus(error, 409) || isStatus(error, 412)) {
+        throw new GameStateConflictError()
+      }
+
+      throw error
+    }
+  }
+
   async recordRound(
     lobby: LobbyRecord,
     players: PlayerRecord[],
@@ -352,6 +378,7 @@ function toLobbyRecord(entity: TableEntityResult<LobbyRecord>): LobbyRecord {
     status: entity.status,
     createdAt: entity.createdAt,
     expiresAt: entity.expiresAt,
+    gameId: entity.gameId ?? '',
     currentRound: entity.currentRound ?? 0,
     startedAt: entity.startedAt ?? '',
     finishedAt: entity.finishedAt ?? '',
@@ -388,6 +415,7 @@ function toRoundRecord(entity: TableEntityResult<RoundRecord>): RoundRecord {
     id: entity.id,
     lobbyCode: entity.lobbyCode,
     type: 'round',
+    gameId: entity.gameId ?? '',
     roundNumber: entity.roundNumber,
     completedAt: entity.completedAt,
     scoresJson: entity.scoresJson,
