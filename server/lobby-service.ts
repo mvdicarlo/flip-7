@@ -79,6 +79,7 @@ export class LobbyService {
         createdAt: createdAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
         gameId: '',
+        hasRestarted: false,
         currentRound: 0,
         startedAt: '',
         finishedAt: '',
@@ -325,7 +326,7 @@ export class LobbyService {
   async restartGame(
     rawCode: string,
     sessionToken: string | undefined,
-    expectedRunId: string,
+    expectedRunId: string | undefined,
   ): Promise<LobbyView> {
     const storedLobby = await this.findLobby(rawCode)
     this.requireHost(storedLobby, sessionToken)
@@ -345,6 +346,7 @@ export class LobbyService {
       ...storedLobby.lobby,
       status: 'active',
       gameId: randomUUID(),
+      hasRestarted: true,
       currentRound: 1,
       startedAt: restartedAt,
       finishedAt: '',
@@ -381,7 +383,7 @@ export class LobbyService {
     rawCode: string,
     hand: HandSelection & { ready: boolean },
     sessionToken: string | undefined,
-    expectedRunId: string,
+    expectedRunId: string | undefined,
   ): Promise<LobbyView> {
     const storedLobby = await this.findLobby(rawCode)
     const requester = this.requirePlayer(storedLobby, sessionToken)
@@ -442,7 +444,7 @@ export class LobbyService {
   async recordRound(
     rawCode: string,
     sessionToken: string | undefined,
-    expectedRunId: string,
+    expectedRunId: string | undefined,
   ): Promise<LobbyView> {
     const storedLobby = await this.findLobby(rawCode)
     this.requireHost(storedLobby, sessionToken)
@@ -571,7 +573,7 @@ export class LobbyService {
   async undoLastRound(
     rawCode: string,
     sessionToken: string | undefined,
-    expectedRunId: string,
+    expectedRunId: string | undefined,
   ): Promise<LobbyView> {
     const storedLobby = await this.findLobby(rawCode)
     this.requireHost(storedLobby, sessionToken)
@@ -701,8 +703,12 @@ export class LobbyService {
 
   private requireGameRun(
     storedLobby: StoredLobby,
-    expectedRunId: string,
+    expectedRunId: string | undefined,
   ): void {
+    if (!expectedRunId && !storedLobby.lobby.hasRestarted) {
+      return
+    }
+
     if (expectedRunId !== gameRunId(storedLobby.lobby)) {
       throw new LobbyServiceError(
         'GAME_RUN_CHANGED',

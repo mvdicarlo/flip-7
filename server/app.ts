@@ -36,6 +36,7 @@ const gameRunIdSchema = z
   .trim()
   .min(1, 'A game run ID is required.')
   .max(64, 'Enter a valid game run ID.')
+  .optional()
 
 const handSchema = z.object({
   numberCards: z
@@ -214,6 +215,6 @@ function bearerToken(authorization: string | undefined): string | undefined {
   return token
 }
 
-function gameRunId(request: express.Request): string {
+function gameRunId(request: express.Request): string | undefined {
   return gameRunIdSchema.parse(request.get('X-Game-Run-Id'))
 }

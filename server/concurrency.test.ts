@@ -8,7 +8,7 @@ import type {
 } from './lobby-model.js'
 import { LobbyService, LobbyServiceError } from './lobby-service.js'
 
-const TEST_NOW = new Date('2026-08-01T12:00:00.000Z')
+const TEST_NOW = new Date('2030-08-01T12:00:00.000Z')
 
 class PausedRoundRepository extends InMemoryLobbyRepository {
   private markRoundStarted!: () => void

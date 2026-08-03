@@ -379,6 +379,7 @@ function toLobbyRecord(entity: TableEntityResult<LobbyRecord>): LobbyRecord {
     createdAt: entity.createdAt,
     expiresAt: entity.expiresAt,
     gameId: entity.gameId ?? '',
+    hasRestarted: entity.hasRestarted ?? false,
     currentRound: entity.currentRound ?? 0,
     startedAt: entity.startedAt ?? '',
     finishedAt: entity.finishedAt ?? '',

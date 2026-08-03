@@ -5,7 +5,7 @@ import { createApp } from './app.js'
 import { InMemoryLobbyRepository } from './in-memory-lobby-repository.js'
 import { LobbyService } from './lobby-service.js'
 
-const TEST_NOW = new Date('2026-08-01T12:00:00.000Z')
+const TEST_NOW = new Date('2030-08-01T12:00:00.000Z')
 
 function makeApp(code = 'ABCDE') {
   const repository = new InMemoryLobbyRepository()
@@ -596,6 +596,40 @@ describe('lobby API', () => {
       .expect(200)
     const firstRunId = startResponse.body.lobby.game.runId
 
+    const legacyBustResponse = await request(app)
+      .put('/api/lobbies/RSTRT/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [12],
+        modifiers: [],
+        busted: true,
+        ready: false,
+      })
+      .expect(200)
+    assert.equal(
+      legacyBustResponse.body.lobby.players[0].hand.busted,
+      true,
+    )
+
+    const legacyScoringResponse = await request(app)
+      .put('/api/lobbies/RSTRT/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [12],
+        modifiers: [],
+        busted: false,
+        ready: false,
+      })
+      .expect(200)
+    assert.deepEqual(
+      legacyScoringResponse.body.lobby.players[0].hand.numberCards,
+      [12],
+    )
+    assert.equal(
+      legacyScoringResponse.body.lobby.players[0].hand.busted,
+      false,
+    )
+
     for (const session of [host, player]) {
       await request(app)
         .put('/api/lobbies/RSTRT/game/hand')
@@ -698,6 +732,21 @@ describe('lobby API', () => {
       .set('X-Game-Run-Id', firstRunId)
       .expect(409)
     assert.equal(staleRestartResponse.body.error.code, 'GAME_RUN_CHANGED')
+
+    const staleLegacyHandResponse = await request(app)
+      .put('/api/lobbies/RSTRT/game/hand')
+      .set('Authorization', `Bearer ${host.token}`)
+      .send({
+        numberCards: [7],
+        modifiers: [],
+        busted: false,
+        ready: true,
+      })
+      .expect(409)
+    assert.equal(
+      staleLegacyHandResponse.body.error.code,
+      'GAME_RUN_CHANGED',
+    )
 
     for (const session of [host, player]) {
       await request(app)

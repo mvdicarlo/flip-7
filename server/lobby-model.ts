@@ -13,6 +13,7 @@ export interface LobbyRecord {
   createdAt: string
   expiresAt: string
   gameId: string
+  hasRestarted: boolean
   currentRound: number
   startedAt: string
   finishedAt: string
